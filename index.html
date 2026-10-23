@@ -888,6 +888,7 @@
     let ultimoBufferXlsx = null;
     let pendingWriteBuffer = null;
     let pendingWriteText = null;
+    let operazioniPendenti = [];
     let codaScrittura = Promise.resolve();
     let salvataggioInCorso = 0;
     let ultimoSalvataggioOk = false;
@@ -976,6 +977,10 @@
     }
 
     function nascondiBarraEmergenza() {
+        if (operazioniPendenti && operazioniPendenti.length) {
+            aggiornaBadgeDB();
+            return;
+        }
         modalitaEmergenza = false;
         pendingWriteBuffer = null;
         pendingWriteText = null;
@@ -1789,7 +1794,7 @@
         let numero = rec.numero;
         if (numero !== "" && numero != null && !isNaN(Number(numero))) numero = Number(numero);
         else numero = "";
-        return {
+        let out = {
             numero: numero,
             dataAll: rec.dataAll == null ? "" : String(rec.dataAll),
             dataScad: rec.dataScad == null ? "" : String(rec.dataScad),
@@ -1802,6 +1807,8 @@
             oraReg: rec.oraReg == null ? "" : String(rec.oraReg),
             utente: rec.utente == null ? "" : String(rec.utente)
         };
+        if (rec._opId) out._opId = String(rec._opId);
+        return out;
     }
 
     function normalizzaDatabase(raw) {
@@ -1895,27 +1902,133 @@
         return db;
     }
 
-    async function scriviDatabaseSuDisco(db, opzioni) {
-        preparaDatabasePerScrittura(db, opzioni);
+    function sanificaDuplicatiFoglio(listaRecord) {
+        if (!listaRecord) return listaRecord;
+        let max = 0;
+        for (let i = 0; i < listaRecord.length; i++) {
+            let n = Number(listaRecord[i] && listaRecord[i].numero);
+            if (!isNaN(n) && n > max) max = n;
+        }
+        let visti = {};
+        for (let i = 0; i < listaRecord.length; i++) {
+            let rec = listaRecord[i];
+            if (!rec || rec.numero === "" || rec.numero == null) continue;
+            let n = Number(rec.numero);
+            if (isNaN(n)) continue;
+            if (visti[n]) {
+                max += 1;
+                rec.numero = max;
+                visti[max] = true;
+            } else {
+                visti[n] = true;
+            }
+        }
+        return listaRecord;
+    }
+
+    function sanificaTuttiIFogli(db) {
+        if (!db || !db.sheets) return db;
+        FOGLI_DB.forEach(function(nome) { sanificaDuplicatiFoglio(db.sheets[nome]); });
+        return db;
+    }
+
+    async function attesaBackoffTentativo(tentativo) {
+        if (tentativo <= 1) return;
+        const delay = (tentativo * 120) + Math.floor(Math.random() * 250);
+        await new Promise(function(r) { setTimeout(r, delay); });
+    }
+
+    async function conLockScrittura(operazione) {
+        async function inCoda() {
+            let precedente = codaScrittura;
+            let rilascia;
+            codaScrittura = new Promise(function(resolve) { rilascia = resolve; });
+            await precedente.catch(function() {});
+            try {
+                return await operazione();
+            } finally {
+                rilascia();
+            }
+        }
+        if (typeof navigator !== "undefined" && navigator.locks && typeof navigator.locks.request === "function") {
+            return await navigator.locks.request("dogana_chiasso_db_write_lock", async function() {
+                return await inCoda();
+            });
+        }
+        return await inCoda();
+    }
+
+    function caricaOperazioniPendenti() {
+        try {
+            let arr = JSON.parse(localStorage.getItem("operazioniPendentiDogana") || "[]");
+            operazioniPendenti = Array.isArray(arr) ? arr : [];
+        } catch (e) {
+            operazioniPendenti = [];
+        }
+    }
+
+    function persistiOperazioniPendenti() {
+        try { localStorage.setItem("operazioniPendentiDogana", JSON.stringify(operazioniPendenti)); } catch (e) { /* ignore */ }
+    }
+
+    function accodaOperazionePendente(op) {
+        operazioniPendenti = (operazioniPendenti || []).filter(function(x) { return x.mioOpId !== op.mioOpId; });
+        operazioniPendenti.push({
+            azione: op.azione,
+            nomeFoglio: op.nomeFoglio,
+            payloadDati: op.payloadDati,
+            mioOpId: op.mioOpId
+        });
+        persistiOperazioniPendenti();
+        try { backupBufferIDB(JSON.stringify({ operazioniPendenti: operazioniPendenti })); } catch (e) { /* ignore */ }
+    }
+
+    function rimuoviOperazionePendente(mioOpId) {
+        operazioniPendenti = (operazioniPendenti || []).filter(function(x) { return x.mioOpId !== mioOpId; });
+        persistiOperazioniPendenti();
+    }
+
+    async function leggiDatabaseGrezzo() {
+        if (!fileHandleDB) {
+            let err = new Error("Nessun file database collegato.");
+            err.definitivo = true;
+            throw err;
+        }
+        const file = await fileHandleDB.getFile();
+        const rawText = await file.text();
+        if (!String(rawText).trim()) {
+            let vuoto = creaDatabaseVuoto();
+            databaseCache = vuoto;
+            return vuoto;
+        }
+        if (String(rawText).trim().charAt(0) === "P" && String(rawText).trim().charAt(1) === "K") {
+            let err = new Error("Il file collegato è un Excel. Seleziona " + DEFAULT_NOME_FILE + " oppure importa l'Excel nel database JSON.");
+            err.definitivo = true;
+            throw err;
+        }
+        const db = normalizzaDatabase(JSON.parse(rawText));
+        applicaConfigDatabase(db);
+        databaseCache = db;
+        return db;
+    }
+
+    async function scriviDatabaseAtomico(db) {
+        preparaDatabasePerScrittura(db);
+        sanificaTuttiIFogli(db);
         let text = JSON.stringify(db);
+        if (!fileHandleDB) {
+            let err = new Error("Nessun file JSON collegato.");
+            err.definitivo = true;
+            throw err;
+        }
         let writable = null;
         try {
-            if (!fileHandleDB) {
-                pendingWriteText = text;
-                ultimoSalvataggioOk = false;
-                mostraBarraEmergenza("Nessun file JSON collegato — usa Riprova o Scarica copia emergenza.");
-                return { ok: false, pendingSync: true };
-            }
             writable = await fileHandleDB.createWritable();
             await writable.write(text);
             await writable.close();
             writable = null;
-            pendingWriteText = null;
-            ultimoSalvataggioOk = true;
             databaseCache = db;
-            nascondiBarraEmergenza();
-            dbConnesso = true;
-            return { ok: true, pendingSync: false };
+            return text;
         } catch (e) {
             if (writable) {
                 try {
@@ -1923,29 +2036,48 @@
                     else await writable.close();
                 } catch (e2) { /* rilascio del lock */ }
             }
-            pendingWriteText = text;
-            try { await backupBufferIDB(text); } catch (e2) { /* ignore */ }
-            ultimoSalvataggioOk = false;
-            mostraBarraEmergenza("createWritable fallito: " + (e && e.message ? e.message : e));
-            return { ok: false, pendingSync: true, errore: String(e && e.message ? e.message : e) };
+            throw e;
         }
+    }
+
+    async function scriviDatabaseSuDisco(db, opzioni) {
+        return await conLockScrittura(async function() {
+            let ultimoErrore = null;
+            for (let tentativo = 1; tentativo <= 10; tentativo++) {
+                try {
+                    await attesaBackoffTentativo(tentativo);
+                    let daScrivere = db;
+                    if (opzioni && opzioni.includiConfig && !opzioni.sostituisciFogli) {
+                        daScrivere = await leggiDatabaseGrezzo();
+                    }
+                    preparaDatabasePerScrittura(daScrivere, opzioni);
+                    await scriviDatabaseAtomico(daScrivere);
+                    pendingWriteText = null;
+                    ultimoSalvataggioOk = true;
+                    databaseCache = daScrivere;
+                    dbConnesso = true;
+                    if (!operazioniPendenti.length) nascondiBarraEmergenza();
+                    return { ok: true, pendingSync: false };
+                } catch (e) {
+                    ultimoErrore = e;
+                    if (e && e.definitivo) break;
+                    if (tentativo >= 10) break;
+                }
+            }
+            ultimoSalvataggioOk = false;
+            let testo = ultimoErrore && ultimoErrore.message ? ultimoErrore.message : String(ultimoErrore || "");
+            mostraBarraEmergenza("createWritable fallito: " + testo);
+            return { ok: false, pendingSync: true, errore: testo };
+        });
     }
 
     async function scriviDatabaseSuFile(db, opzioni) {
-        let precedente = codaScrittura;
-        let rilascia;
-        codaScrittura = new Promise(function(resolve) { rilascia = resolve; });
-        await precedente.catch(function() {});
-        try {
-            return await scriviDatabaseSuDisco(db, opzioni);
-        } finally {
-            rilascia();
-        }
+        return await scriviDatabaseSuDisco(db, opzioni);
     }
 
-    function recordDaPayload(nomeFoglio, payload, numero, dataReg, oraReg) {
+    function recordDaPayload(nomeFoglio, payload, numero, dataReg, oraReg, opId) {
         let speciale = is117ImportSheet(nomeFoglio);
-        return normalizzaRecord({
+        let rec = normalizzaRecord({
             numero: numero,
             dataAll: payload.dataAllestimento || "",
             dataScad: is118Sheet(nomeFoglio) ? "" : (payload.dataScadenza || ""),
@@ -1958,6 +2090,8 @@
             oraReg: oraReg || "",
             utente: payload.utente || ""
         });
+        if (opId) rec._opId = String(opId);
+        return rec;
     }
 
     function recordToRowArray(nomeFoglio, rec) {
@@ -2076,118 +2210,193 @@
         return wb;
     }
 
-    async function salvaNuovoVerificato(payload, nomeFoglio) {
-        let z = zurichNow();
-        let utente = String(payload.utente || "").trim();
-        let opId = utente + "_" + Date.now();
-        let identita = {
-            utente: utente,
-            oraReg: z.ora,
-            dataReg: z.data,
-            opId: opId,
-            dataAllestimento: String(payload.dataAllestimento || "").trim(),
-            partnerDogana: String(payload.partnerDogana || "").trim(),
-            status: String(payload.status || "").trim()
-        };
-        let ultimoMotivo = "verifica anti-doppione non riuscita";
+    function applicaCrossRefSuDatabase(db, nomeFoglio, payload, nuovoNumero, numeroPrecedente) {
         let foglioTargetNome = foglioTargetCrossRef(nomeFoglio);
-        let ultimoNumeroScritto = null;
+        if (!foglioTargetNome || !payload.campoExtra || String(payload.campoExtra).trim() === "") return { ok: true };
+        let numTarget = Number(String(payload.campoExtra).trim());
+        if (!db.sheets[foglioTargetNome]) {
+            return { ok: false, messaggio: "Attenzione: Il foglio " + foglioTargetNome + " non esiste." };
+        }
+        let idxTarget = trovaIndiceRecord(db.sheets[foglioTargetNome], numTarget);
+        if (idxTarget === -1) {
+            return {
+                ok: false,
+                messaggio: "ERRORE DI REGISTRAZIONE! Il riferimento " + numTarget + " non esiste nel foglio " + foglioTargetNome + ". Registrazione annullata."
+            };
+        }
+        aggiornaCrossRefRecord(db.sheets[foglioTargetNome][idxTarget], nuovoNumero, payload.status, numeroPrecedente);
+        return { ok: true };
+    }
 
+    function esitoRecordConfermato(foglio, mioOpId, numero) {
+        let conOp = (foglio || []).filter(function(r) { return r && r._opId === mioOpId; });
+        let conNum = (foglio || []).filter(function(r) { return Number(r.numero) === Number(numero); });
+        return conOp.length === 1 && conNum.length === 1 && Number(conOp[0].numero) === Number(numero);
+    }
+
+    async function salvaNuovoVerificato(payload, nomeFoglio) {
+        let mioOpId = String(payload.utente || "").trim() + "_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
         return await conUiSalvataggio(async function() {
-            if (FOGLI_DB.indexOf(nomeFoglio) === -1) {
-                return { successo: false, messaggio: "Errore: il foglio '" + nomeFoglio + "' non esiste nel database!" };
-            }
-            for (let tentativo = 1; tentativo <= 3; tentativo++) {
-                let db = await rileggiDatabaseDaFile();
-                let records = db.sheets[nomeFoglio];
-                let numTarget = null;
-                if (foglioTargetNome && payload.campoExtra && String(payload.campoExtra).trim() !== "") {
-                    numTarget = Number(String(payload.campoExtra).trim());
-                    if (!db.sheets[foglioTargetNome]) {
-                        return { successo: false, messaggio: "Attenzione: Il foglio " + foglioTargetNome + " non esiste." };
-                    }
-                    if (trovaIndiceRecord(db.sheets[foglioTargetNome], numTarget) === -1) {
-                        return {
-                            successo: false,
-                            messaggio: "ERRORE DI REGISTRAZIONE! Il riferimento " + numTarget + " non esiste nel foglio " + foglioTargetNome + ". Registrazione annullata."
-                        };
-                    }
+            return await conLockScrittura(async function() {
+                if (FOGLI_DB.indexOf(nomeFoglio) === -1) {
+                    return { successo: false, messaggio: "Errore: il foglio '" + nomeFoglio + "' non esiste nel database!" };
                 }
-
-                let nostre = [];
-                for (let i = 0; i < records.length; i++) {
-                    if (records[i] && records[i].numero !== "" && recordMatchSessione(records[i], identita)) {
-                        nostre.push({ rec: records[i], i: i });
-                    }
-                }
-                let candidati = nostre;
-                if (tentativo > 1 && ultimoNumeroScritto != null) {
-                    candidati = nostre.filter(function(x) { return Number(x.rec.numero) === Number(ultimoNumeroScritto); });
-                }
-                if (tentativo > 1 && candidati.length === 1) {
-                    let numGia = Number(candidati[0].rec.numero);
-                    let infoGia = mappaProgressiviRecords(records);
-                    if (!isNaN(numGia) && (infoGia.conteggio[numGia] || 0) === 1) {
-                        databaseCache = db;
+                let ultimoErrore = null;
+                for (let tentativo = 1; tentativo <= 10; tentativo++) {
+                    try {
+                        await attesaBackoffTentativo(tentativo);
+                        const file = await fileHandleDB.getFile();
+                        const rawText = await file.text();
+                        const db = String(rawText).trim() ? normalizzaDatabase(JSON.parse(rawText)) : creaDatabaseVuoto();
+                        applicaConfigDatabase(db);
+                        if (!db.sheets[nomeFoglio]) {
+                            let err = new Error("Errore: il foglio '" + nomeFoglio + "' non esiste nel database!");
+                            err.definitivo = true;
+                            throw err;
+                        }
+                        sanificaTuttiIFogli(db);
+                        let records = db.sheets[nomeFoglio];
+                        let gia = records.filter(function(r) { return r && r._opId === mioOpId; });
+                        if (gia.length === 1 && esitoRecordConfermato(records, mioOpId, gia[0].numero)) {
+                            databaseCache = db;
+                            ultimoSalvataggioOk = true;
+                            rimuoviOperazionePendente(mioOpId);
+                            return {
+                                successo: true,
+                                status: "success",
+                                numero: Number(gia[0].numero),
+                                messaggio: "Formulario registrato.",
+                                numeroAssegnato: Number(gia[0].numero)
+                            };
+                        }
+                        let maxNumero = 0;
+                        for (let i = 0; i < records.length; i++) {
+                            let n = Number(records[i] && records[i].numero);
+                            if (!isNaN(n) && n > maxNumero) maxNumero = n;
+                        }
+                        let nuovoNumero = maxNumero + 1;
+                        for (let i = 0; i < records.length; i++) {
+                            if (Number(records[i].numero) === nuovoNumero) throw new Error("RETRY_CONFLICT");
+                        }
+                        let z = zurichNow();
+                        let cross = applicaCrossRefSuDatabase(db, nomeFoglio, payload, nuovoNumero, null);
+                        if (!cross.ok) {
+                            let err = new Error(cross.messaggio);
+                            err.definitivo = true;
+                            throw err;
+                        }
+                        records.push(recordDaPayload(nomeFoglio, payload, nuovoNumero, z.data, z.ora, mioOpId));
+                        await scriviDatabaseAtomico(db);
+                        await new Promise(function(r) { setTimeout(r, 50); });
+                        const fileCheck = await fileHandleDB.getFile();
+                        const dbCheck = normalizzaDatabase(JSON.parse(await fileCheck.text()));
+                        if (!esitoRecordConfermato(dbCheck.sheets[nomeFoglio], mioOpId, nuovoNumero)) {
+                            throw new Error("RETRY_CONFLICT");
+                        }
+                        databaseCache = dbCheck;
+                        ultimoSalvataggioOk = true;
+                        rimuoviOperazionePendente(mioOpId);
+                        if (!operazioniPendenti.length) nascondiBarraEmergenza();
                         return {
                             successo: true,
                             status: "success",
-                            numero: numGia,
+                            numero: nuovoNumero,
                             messaggio: "Formulario registrato.",
-                            numeroAssegnato: numGia
+                            numeroAssegnato: nuovoNumero
                         };
+                    } catch (err) {
+                        ultimoErrore = err;
+                        if (err && err.definitivo) return { successo: false, messaggio: err.message };
+                        if (tentativo < 10) continue;
                     }
                 }
+                accodaOperazionePendente({ azione: "nuovo", nomeFoglio: nomeFoglio, payloadDati: payload, mioOpId: mioOpId });
+                let testo = ultimoErrore && ultimoErrore.message ? ultimoErrore.message : String(ultimoErrore || "");
+                mostraBarraEmergenza("Scrittura non riuscita dopo 10 tentativi: " + testo);
+                return {
+                    successo: false,
+                    messaggio: "Scrittura database non riuscita dopo 10 tentativi. Il numero non è stato fissato: usa Riprova per ricalcolarlo. " + testo
+                };
+            });
+        });
+    }
 
-                let maxNumero = maxProgressivoRecords(records);
-                let nuovoNumero = maxNumero + 1;
-                let numeroPrecedente = null;
-                if (tentativo > 1 && candidati.length === 1) {
-                    numeroPrecedente = Number(candidati[0].rec.numero);
-                    records[candidati[0].i] = recordDaPayload(nomeFoglio, payload, nuovoNumero, z.data, z.ora);
-                } else {
-                    records.push(recordDaPayload(nomeFoglio, payload, nuovoNumero, z.data, z.ora));
+    async function salvaModificaVerificata(payload, nomeFoglio) {
+        let mioOpId = String(payload.utente || "").trim() + "_mod_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
+        let numeroDaModificare = Number(payload.numeroDaModificare);
+        return await conUiSalvataggio(async function() {
+            return await conLockScrittura(async function() {
+                let ultimoErrore = null;
+                for (let tentativo = 1; tentativo <= 10; tentativo++) {
+                    try {
+                        await attesaBackoffTentativo(tentativo);
+                        const file = await fileHandleDB.getFile();
+                        const rawText = await file.text();
+                        const db = String(rawText).trim() ? normalizzaDatabase(JSON.parse(rawText)) : creaDatabaseVuoto();
+                        applicaConfigDatabase(db);
+                        if (!db.sheets[nomeFoglio]) {
+                            let err = new Error("Errore: il foglio '" + nomeFoglio + "' non esiste nel database!");
+                            err.definitivo = true;
+                            throw err;
+                        }
+                        sanificaTuttiIFogli(db);
+                        let records = db.sheets[nomeFoglio];
+                        if (esitoRecordConfermato(records, mioOpId, numeroDaModificare)) {
+                            databaseCache = db;
+                            ultimoSalvataggioOk = true;
+                            rimuoviOperazionePendente(mioOpId);
+                            return {
+                                successo: true,
+                                status: "success",
+                                numero: numeroDaModificare,
+                                messaggio: "Modifica registrata.",
+                                numeroAssegnato: numeroDaModificare
+                            };
+                        }
+                        let idx = trovaIndiceRecord(records, numeroDaModificare);
+                        if (idx === -1) {
+                            let err = new Error("Errore: record originale non trovato.");
+                            err.definitivo = true;
+                            throw err;
+                        }
+                        let cross = applicaCrossRefSuDatabase(db, nomeFoglio, payload, numeroDaModificare, null);
+                        if (!cross.ok) {
+                            let err = new Error(cross.messaggio);
+                            err.definitivo = true;
+                            throw err;
+                        }
+                        let esistente = records[idx];
+                        let z = zurichNow();
+                        records[idx] = recordDaPayload(nomeFoglio, payload, numeroDaModificare, esistente.dataReg || z.data, esistente.oraReg || z.ora, mioOpId);
+                        await scriviDatabaseAtomico(db);
+                        await new Promise(function(r) { setTimeout(r, 50); });
+                        const fileCheck = await fileHandleDB.getFile();
+                        const dbCheck = normalizzaDatabase(JSON.parse(await fileCheck.text()));
+                        if (!esitoRecordConfermato(dbCheck.sheets[nomeFoglio], mioOpId, numeroDaModificare)) {
+                            throw new Error("RETRY_CONFLICT");
+                        }
+                        databaseCache = dbCheck;
+                        ultimoSalvataggioOk = true;
+                        rimuoviOperazionePendente(mioOpId);
+                        if (!operazioniPendenti.length) nascondiBarraEmergenza();
+                        return {
+                            successo: true,
+                            status: "success",
+                            numero: numeroDaModificare,
+                            messaggio: "Modifica registrata.",
+                            numeroAssegnato: numeroDaModificare
+                        };
+                    } catch (err) {
+                        ultimoErrore = err;
+                        if (err && err.definitivo) return { successo: false, messaggio: err.message };
+                        if (tentativo < 10) continue;
+                    }
                 }
-                ultimoNumeroScritto = nuovoNumero;
-                if (numTarget != null && foglioTargetNome) {
-                    let idxTarget = trovaIndiceRecord(db.sheets[foglioTargetNome], numTarget);
-                    if (idxTarget !== -1) aggiornaCrossRefRecord(db.sheets[foglioTargetNome][idxTarget], nuovoNumero, payload.status, numeroPrecedente);
-                }
-                pushBackupEmergenzaJSON({
-                    azione: "nuovo",
-                    nomeFoglio: nomeFoglio,
-                    numero: nuovoNumero,
-                    opId: opId,
-                    tentativo: tentativo,
-                    payload: payload
-                });
-
-                let wr = await scriviDatabaseSuFile(db);
-                if (!wr || !wr.ok) {
-                    return {
-                        successo: false,
-                        messaggio: "Scrittura database non riuscita" + (wr && wr.errore ? ": " + wr.errore : ".") + " I dati restano nella copia di emergenza."
-                    };
-                }
-
-                let dbVer = await rileggiDatabaseDaFile();
-                let esito = verificaRecordNuovo(dbVer.sheets[nomeFoglio], nuovoNumero, identita);
-                if (esito.ok || esito.rigaIntegra) {
-                    databaseCache = dbVer;
-                    return {
-                        successo: true,
-                        status: "success",
-                        numero: nuovoNumero,
-                        messaggio: "Formulario registrato.",
-                        numeroAssegnato: nuovoNumero
-                    };
-                }
-                ultimoMotivo = esito.motivo;
-            }
-            return {
-                successo: false,
-                messaggio: "Numero progressivo non confermato sul file dopo 3 tentativi. " + ultimoMotivo
-            };
+                accodaOperazionePendente({ azione: "modifica", nomeFoglio: nomeFoglio, payloadDati: payload, mioOpId: mioOpId });
+                let testo = ultimoErrore && ultimoErrore.message ? ultimoErrore.message : String(ultimoErrore || "");
+                mostraBarraEmergenza("Scrittura non riuscita dopo 10 tentativi: " + testo);
+                return { successo: false, messaggio: "Scrittura database non riuscita dopo 10 tentativi. " + testo };
+            });
         });
     }
 
@@ -2251,41 +2460,7 @@
             }
 
             if (azione === "modifica") {
-                let numeroDaModificare = Number(payload.numeroDaModificare);
-                let idx = trovaIndiceRecord(records, numeroDaModificare);
-                if (idx === -1) {
-                    return { successo: false, messaggio: "Errore: record originale non trovato." };
-                }
-                let foglioTargetNome = foglioTargetCrossRef(nomeFoglio);
-                let numTarget = null;
-                if (foglioTargetNome && payload.campoExtra && String(payload.campoExtra).trim() !== "") {
-                    numTarget = Number(String(payload.campoExtra).trim());
-                    if (trovaIndiceRecord(db.sheets[foglioTargetNome] || [], numTarget) === -1) {
-                        return {
-                            successo: false,
-                            messaggio: "ERRORE DI REGISTRAZIONE! Il riferimento " + numTarget + " non esiste nel foglio " + foglioTargetNome + ". Registrazione annullata."
-                        };
-                    }
-                }
-                let esistente = records[idx];
-                let z = zurichNow();
-                records[idx] = recordDaPayload(nomeFoglio, payload, numeroDaModificare, esistente.dataReg || z.data, esistente.oraReg || z.ora);
-                if (numTarget != null) {
-                    let idxTarget = trovaIndiceRecord(db.sheets[foglioTargetNome], numTarget);
-                    if (idxTarget !== -1) aggiornaCrossRefRecord(db.sheets[foglioTargetNome][idxTarget], numeroDaModificare, payload.status, null);
-                }
-                pushBackupEmergenzaJSON({ azione: "modifica", nomeFoglio: nomeFoglio, numero: numeroDaModificare, payload: payload });
-                let wr = await conUiSalvataggio(function() { return scriviDatabaseSuFile(db); });
-                if (!wr || !wr.ok) {
-                    return { successo: false, messaggio: "Scrittura database non riuscita" + (wr && wr.errore ? ": " + wr.errore : ".") };
-                }
-                return {
-                    successo: true,
-                    status: "success",
-                    numero: numeroDaModificare,
-                    messaggio: "Modifica registrata.",
-                    numeroAssegnato: numeroDaModificare
-                };
+                return await salvaModificaVerificata(payload, nomeFoglio);
             }
 
             return { successo: false, messaggio: "Azione non riconosciuta: " + azione };
@@ -2299,7 +2474,7 @@
         await salvaHandleIDB();
         if (creaSeVuoto) {
             databaseCache = creaDatabaseVuoto();
-            await conUiSalvataggio(function() { return scriviDatabaseSuFile(databaseCache, { includiConfig: true }); });
+            await conUiSalvataggio(function() { return scriviDatabaseSuFile(databaseCache, { includiConfig: true, sostituisciFogli: true }); });
         } else {
             await rileggiDatabaseDaFile();
             if (databaseCache) applicaConfigDatabase(databaseCache);
@@ -2543,6 +2718,10 @@
     }
 
     function postLoginInit() {
+        caricaOperazioniPendenti();
+        if (operazioniPendenti.length) {
+            mostraBarraEmergenza("Ci sono operazioni in coda. Riprova per registrarle con un numero aggiornato, senza sovrascrivere i record degli altri.");
+        }
         caricaConfigLocale();
         if (databaseCache) applicaConfigDatabase(databaseCache);
         inizializzaDropdownPartners();
@@ -2551,6 +2730,99 @@
         if (campoUtente) campoUtente.value = u;
         selezionaFoglio(foglioCorrente || "11.73import");
         aggiornaBadgeDB();
+    }
+
+    async function applicaOperazioniPendenti() {
+        let coda = (operazioniPendenti || []).slice();
+        if (!coda.length) return { ok: false, errore: "Nessuna operazione pendente." };
+        let ultimoErrore = null;
+        for (let tentativo = 1; tentativo <= 10; tentativo++) {
+            try {
+                await attesaBackoffTentativo(tentativo);
+                const file = await fileHandleDB.getFile();
+                const rawText = await file.text();
+                const db = String(rawText).trim() ? normalizzaDatabase(JSON.parse(rawText)) : creaDatabaseVuoto();
+                sanificaTuttiIFogli(db);
+                let assegnati = [];
+                for (let i = 0; i < coda.length; i++) {
+                    let op = coda[i];
+                    let payload = op.payloadDati || {};
+                    if (!db.sheets[op.nomeFoglio]) {
+                        let err = new Error("Foglio mancante: " + op.nomeFoglio);
+                        err.definitivo = true;
+                        throw err;
+                    }
+                    let records = db.sheets[op.nomeFoglio];
+                    if (op.azione === "nuovo") {
+                        let gia = records.filter(function(r) { return r && r._opId === op.mioOpId; });
+                        if (gia.length === 1) {
+                            assegnati.push({ op: op, numero: Number(gia[0].numero) });
+                            continue;
+                        }
+                        let maxNumero = 0;
+                        for (let r = 0; r < records.length; r++) {
+                            let n = Number(records[r] && records[r].numero);
+                            if (!isNaN(n) && n > maxNumero) maxNumero = n;
+                        }
+                        let nuovoNumero = maxNumero + 1;
+                        for (let r = 0; r < records.length; r++) {
+                            if (Number(records[r].numero) === nuovoNumero) throw new Error("RETRY_CONFLICT");
+                        }
+                        let z = zurichNow();
+                        let cross = applicaCrossRefSuDatabase(db, op.nomeFoglio, payload, nuovoNumero, null);
+                        if (!cross.ok) {
+                            let err = new Error(cross.messaggio);
+                            err.definitivo = true;
+                            throw err;
+                        }
+                        records.push(recordDaPayload(op.nomeFoglio, payload, nuovoNumero, z.data, z.ora, op.mioOpId));
+                        assegnati.push({ op: op, numero: nuovoNumero });
+                    } else {
+                        let numero = Number(payload.numeroDaModificare);
+                        let idx = trovaIndiceRecord(records, numero);
+                        if (idx === -1) {
+                            let err = new Error("Errore: record originale non trovato.");
+                            err.definitivo = true;
+                            throw err;
+                        }
+                        let cross = applicaCrossRefSuDatabase(db, op.nomeFoglio, payload, numero, null);
+                        if (!cross.ok) {
+                            let err = new Error(cross.messaggio);
+                            err.definitivo = true;
+                            throw err;
+                        }
+                        let esistente = records[idx];
+                        let z = zurichNow();
+                        records[idx] = recordDaPayload(op.nomeFoglio, payload, numero, esistente.dataReg || z.data, esistente.oraReg || z.ora, op.mioOpId);
+                        assegnati.push({ op: op, numero: numero });
+                    }
+                }
+                await scriviDatabaseAtomico(db);
+                await new Promise(function(r) { setTimeout(r, 50); });
+                const fileCheck = await fileHandleDB.getFile();
+                const dbCheck = normalizzaDatabase(JSON.parse(await fileCheck.text()));
+                for (let a = 0; a < assegnati.length; a++) {
+                    if (!esitoRecordConfermato(dbCheck.sheets[assegnati[a].op.nomeFoglio], assegnati[a].op.mioOpId, assegnati[a].numero)) {
+                        throw new Error("RETRY_CONFLICT");
+                    }
+                }
+                operazioniPendenti = [];
+                persistiOperazioniPendenti();
+                pendingWriteText = null;
+                databaseCache = dbCheck;
+                ultimoSalvataggioOk = true;
+                dbConnesso = true;
+                nascondiBarraEmergenza();
+                return { ok: true, assegnati: assegnati };
+            } catch (err) {
+                ultimoErrore = err;
+                if (err && err.definitivo) break;
+                if (tentativo >= 10) break;
+            }
+        }
+        let testo = ultimoErrore && ultimoErrore.message ? ultimoErrore.message : String(ultimoErrore || "");
+        mostraBarraEmergenza("Riprova fallita: " + testo);
+        return { ok: false, errore: testo };
     }
 
     async function riprovaScritturaExcel() {
@@ -2576,37 +2848,28 @@
                 if (!handles || !handles[0]) return;
                 handle = handles[0];
             }
-            if (!pendingWriteText) {
-                alert("Nessuna copia JSON di emergenza da riscrivere.");
-                return;
-            }
             fileHandleDB = handle;
             handleMemorizzato = handle;
             await salvaHandleIDB();
-            let text = pendingWriteText;
-            await conUiSalvataggio(async function() {
-                let writable = null;
-                try {
-                    writable = await fileHandleDB.createWritable();
-                    await writable.write(text);
-                    await writable.close();
-                    ultimoSalvataggioOk = true;
-                    pendingWriteText = null;
-                    nascondiBarraEmergenza();
-                    dbConnesso = true;
-                } catch (e) {
-                    if (writable) {
-                        try {
-                            if (typeof writable.abort === "function") await writable.abort();
-                            else await writable.close();
-                        } catch (e2) { /* rilascio del lock */ }
-                    }
-                    pendingWriteText = text;
-                    try { await backupBufferIDB(text); } catch (e2) { /* ignore */ }
-                    throw e;
-                }
+            caricaOperazioniPendenti();
+            if (!operazioniPendenti.length) {
+                alert("Nessuna operazione pendente da riscrivere. Il numero viene ricalcolato solo dalle operazioni in coda, senza sovrascrivere il database.");
+                return;
+            }
+            let esito = await conUiSalvataggio(function() {
+                return conLockScrittura(function() { return applicaOperazioniPendenti(); });
             });
-            alert("Scrittura sul database JSON riuscita.");
+            if (!esito || !esito.ok) return;
+            ["msg-nuovo", "msg-modifica", "msg-tabella"].forEach(function(id) {
+                let el = document.getElementById(id);
+                if (el) { el.style.color = "green"; el.innerText = ""; }
+            });
+            let numeri = (esito.assegnati || []).map(function(a) { return a.numero; }).join(", ");
+            let display = document.getElementById("display-numero-nuovo");
+            if (display && esito.assegnati && esito.assegnati.length === 1 && esito.assegnati[0].op.azione === "nuovo") {
+                display.textContent = String(esito.assegnati[0].numero);
+            }
+            alert("Scrittura sul database JSON riuscita." + (numeri ? " Numero assegnato: " + numeri + "." : ""));
         } catch (e) {
             mostraBarraEmergenza("Riprova fallita: " + (e && e.message ? e.message : e));
         } finally {
@@ -2619,14 +2882,15 @@
     }
 
     function scaricaCopiaEmergenza() {
-        if (!pendingWriteText) {
-            alert("Nessuna copia JSON in memoria.");
+        caricaOperazioniPendenti();
+        if (!operazioniPendenti.length) {
+            alert("Nessuna operazione pendente in coda.");
             return;
         }
-        let blob = new Blob([pendingWriteText], { type: "application/json" });
+        let blob = new Blob([JSON.stringify({ operazioniPendenti: operazioniPendenti }, null, 2)], { type: "application/json" });
         let a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = "EMERGENZA_" + getNomeFileDB();
+        a.download = "EMERGENZA_operazioni_" + getNomeFileDB();
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -2678,7 +2942,7 @@
             let wb = XLSX.read(buf, { type: "array", cellDates: false, cellNF: false, cellStyles: false, cellFormula: false, cellHTML: false });
             let db = await rileggiDatabaseDaFile();
             importaFogliExcelNelDatabase(db, wb);
-            let wr = await conUiSalvataggio(function() { return scriviDatabaseSuFile(db, { includiConfig: true }); });
+            let wr = await conUiSalvataggio(function() { return scriviDatabaseSuFile(db, { includiConfig: true, sostituisciFogli: true }); });
             if (!wr || !wr.ok) throw new Error((wr && wr.errore) ? wr.errore : "Scrittura JSON non riuscita");
             applicaConfigDatabase(databaseCache || db);
             inizializzaDropdownPartners();
