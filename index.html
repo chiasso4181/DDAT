@@ -415,6 +415,29 @@
             font-family: inherit;
         }
         .btn-login-admin-link:hover { color: #1e293b; }
+        .btn-login-da-excel {
+            background: linear-gradient(90deg, #1d4ed8 0%, #ea580c 100%);
+            color: #fff;
+            font-weight: 800;
+            box-shadow: 0 2px 6px rgba(29, 78, 216, 0.28);
+        }
+        .btn-login-da-excel:hover { filter: brightness(1.08); }
+        .btn-login-passo2 {
+            display: none;
+            background: #ea580c;
+            color: #fff;
+            font-weight: 800;
+            font-size: 1.05rem;
+            padding: 16px 14px;
+            box-shadow: 0 0 0 3px #fdba74;
+            animation: login-passo2-blink 0.9s steps(2, start) infinite;
+        }
+        @keyframes login-passo2-blink {
+            50% { background: #fbbf24; color: #1e293b; box-shadow: 0 0 0 4px #1d4ed8; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .btn-login-passo2 { animation: none; }
+        }
         .login-hint { margin: 14px 0 0; font-size: 0.78rem; color: var(--muted); line-height: 1.4; }
         .login-hint code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; }
         body.login-bloccato .main-content,
@@ -767,7 +790,7 @@
         </div>
 
         <div id="login-pannello-admin" style="display:none;">
-            <p class="modale-testo">Verifica la password, poi seleziona il file JSON del database.</p>
+            <p class="modale-testo">Verifica la password. Se il JSON esiste già, selezionalo. Al primo avvio crealo partendo dall'Excel.</p>
             <div class="grid-item" style="margin-bottom:10px;">
                 <label for="login-admin-password">Password Admin</label>
                 <input type="password" id="login-admin-password" autocomplete="current-password" placeholder="Password Admin">
@@ -779,6 +802,9 @@
             <div class="modale-azioni">
                 <button type="button" class="btn-modale btn-modale-secondario" onclick="copiaPercorsoLoginAdmin()">📋 Copia percorso</button>
                 <button type="button" class="btn-modale btn-modale-chiasso" id="btn-login-seleziona-excel" onclick="sbloccaESelezionaFileExcel()">📂 Sblocca e Seleziona File JSON</button>
+                <button type="button" class="btn-modale btn-login-da-excel" id="btn-login-da-excel" onclick="primoAvvioCreaJsonDaExcel()">📗 1° Avvio: Crea file JSON partendo dal tuo Excel (.xlsx)</button>
+                <button type="button" class="btn-modale btn-login-passo2" id="btn-login-passo2" onclick="salvaJsonConvertitoPasso2()">💾 Passo 2: Salva ora Formulari_Dogana_Chiasso_DB.json nella cartella Numerazioni</button>
+                <button type="button" class="btn-login-admin-link" id="btn-login-json-vuoto" onclick="creaJsonVuotoDaZero()">➕ Crea JSON vuoto da zero</button>
                 <button type="button" class="btn-login-admin-link" onclick="nascondiPannelloAdminLogin()">← Torna all'accesso</button>
             </div>
         </div>
@@ -865,6 +891,7 @@
     let codaScrittura = Promise.resolve();
     let salvataggioInCorso = 0;
     let ultimoSalvataggioOk = false;
+    let dbConvertitoTemp = null;
 
     // ========== BACKEND EXCEL (File System Access + SheetJS + IndexedDB) ==========
 
@@ -1279,6 +1306,8 @@
             if (caso1) caso1.style.display = "none";
             if (caso2) caso2.style.display = "none";
             if (admin) admin.style.display = "block";
+            let passo2 = document.getElementById("btn-login-passo2");
+            if (passo2) passo2.style.display = dbConvertitoTemp ? "block" : "none";
             return;
         }
         if (attesa) attesa.style.display = "none";
@@ -2353,6 +2382,156 @@
         }
     }
 
+    function importaFogliExcelNelDatabase(db, wb) {
+        compattaFogliWorkbook(wb);
+        FOGLI_DB.forEach(function(nome) {
+            let records = [];
+            if (wb.Sheets[nome]) {
+                let matrix = sheetToMatrix(wb.Sheets[nome], numColonneFoglio(nome));
+                for (let i = 1; i < matrix.length; i++) {
+                    let rec = normalizzaRecord(rowToRecord(nome, matrix[i]));
+                    if (rec.numero === "" || rec.numero == null) continue;
+                    records.push(rec);
+                }
+            }
+            db.sheets[nome] = records;
+        });
+        if (wb.SheetNames.includes("_Config")) leggiConfigDaWorkbook(wb);
+        return preparaDatabasePerScrittura(db, { includiConfig: true });
+    }
+
+    function contaRecordDatabase(db) {
+        let n = 0;
+        FOGLI_DB.forEach(function(nome) { n += (db.sheets[nome] || []).length; });
+        return n;
+    }
+
+    async function primoAvvioCreaJsonDaExcel() {
+        const pwd = ((document.getElementById("login-admin-password") || {}).value || "").trim();
+        if (pwd !== "Chiasso4181") {
+            const msg = document.getElementById("login-msg");
+            if (msg) { msg.style.color = "red"; msg.innerText = "Password Admin non corretta."; }
+            return;
+        }
+        const handles = await window.showOpenFilePicker({
+            multiple: false,
+            types: [{ description: "Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }],
+            excludeAcceptAllOption: false
+        }).catch(function(e) {
+            if (!(e && e.name === "AbortError")) {
+                const msg = document.getElementById("login-msg");
+                if (msg) { msg.style.color = "red"; msg.innerText = (e && e.message) ? e.message : String(e); }
+            }
+            return null;
+        });
+        if (!handles || !handles[0]) return;
+        let msg = document.getElementById("login-msg");
+        try {
+            ensureXLSX();
+            if (msg) { msg.style.color = "#334155"; msg.innerText = "Lettura Excel in corso…"; }
+            let percorsoCampo = ((document.getElementById("login-admin-percorso") || {}).value || "").trim();
+            if (percorsoCampo) localStorage.setItem(LS_PERCORSO, percorsoCampo);
+            let file = await handles[0].getFile();
+            let buf = await file.arrayBuffer();
+            let wb = XLSX.read(buf, { type: "array", cellDates: false, cellNF: false, cellStyles: false, cellFormula: false, cellHTML: false });
+            dbConvertitoTemp = importaFogliExcelNelDatabase(creaDatabaseVuoto(), wb);
+            let passo2 = document.getElementById("btn-login-passo2");
+            if (passo2) passo2.style.display = "block";
+            if (msg) {
+                msg.style.color = "green";
+                msg.innerText = "Excel letto (" + contaRecordDatabase(dbConvertitoTemp) + " record). Clicca Passo 2 per salvare il JSON.";
+            }
+        } catch (e) {
+            dbConvertitoTemp = null;
+            let passo2 = document.getElementById("btn-login-passo2");
+            if (passo2) passo2.style.display = "none";
+            if (msg) { msg.style.color = "red"; msg.innerText = (e && e.message) ? e.message : String(e); }
+        }
+    }
+
+    async function scriviDatabaseEEntra(handle, db) {
+        let msg = document.getElementById("login-msg");
+        let writable = null;
+        try {
+            if (msg) { msg.style.color = "#334155"; msg.innerText = "Scrittura del database JSON…"; }
+            let text = JSON.stringify(db);
+            writable = await handle.createWritable();
+            await writable.write(text);
+            await writable.close();
+            writable = null;
+            let percorso = ((document.getElementById("login-admin-percorso") || {}).value || "").trim() || DEFAULT_PERCORSO;
+            localStorage.setItem(LS_PERCORSO, percorso);
+            localStorage.setItem(LS_NOME_FILE, handle.name || DEFAULT_NOME_FILE);
+            applicaNomeOperatore(nomeOperatoreLogin());
+            fileHandleDB = handle;
+            handleMemorizzato = handle;
+            databaseCache = db;
+            ultimoSalvataggioOk = true;
+            pendingWriteText = null;
+            await salvaHandleIDB();
+            await rileggiDatabaseDaFile();
+            applicaConfigDatabase(databaseCache);
+            dbConnesso = true;
+            dbConvertitoTemp = null;
+            aggiornaBadgeDB();
+            chiudiModaleLogin();
+            postLoginInit();
+        } catch (e) {
+            if (writable) {
+                try {
+                    if (typeof writable.abort === "function") await writable.abort();
+                    else await writable.close();
+                } catch (e2) { /* rilascio del lock */ }
+            }
+            if (msg) { msg.style.color = "red"; msg.innerText = (e && e.message) ? e.message : String(e); }
+            aggiornaBadgeDB();
+        }
+    }
+
+    async function salvaJsonConvertitoPasso2() {
+        const handle = await window.showSaveFilePicker({
+            suggestedName: "Formulari_Dogana_Chiasso_DB.json",
+            types: [{ description: "Database JSON", accept: { "application/json": [".json"] } }]
+        }).catch(function(e) {
+            if (!(e && e.name === "AbortError")) {
+                const msg = document.getElementById("login-msg");
+                if (msg) { msg.style.color = "red"; msg.innerText = (e && e.message) ? e.message : String(e); }
+            }
+            return null;
+        });
+        if (!handle) return;
+        if (!dbConvertitoTemp) {
+            const msg = document.getElementById("login-msg");
+            if (msg) { msg.style.color = "red"; msg.innerText = "Nessun Excel convertito. Ripeti il passo 1."; }
+            return;
+        }
+        await scriviDatabaseEEntra(handle, dbConvertitoTemp);
+    }
+
+    async function creaJsonVuotoDaZero() {
+        const pwd = ((document.getElementById("login-admin-password") || {}).value || "").trim();
+        if (pwd !== "Chiasso4181") {
+            const msg = document.getElementById("login-msg");
+            if (msg) { msg.style.color = "red"; msg.innerText = "Password Admin non corretta."; }
+            return;
+        }
+        const handle = await window.showSaveFilePicker({
+            suggestedName: "Formulari_Dogana_Chiasso_DB.json",
+            types: [{ description: "Database JSON", accept: { "application/json": [".json"] } }]
+        }).catch(function(e) {
+            if (!(e && e.name === "AbortError")) {
+                const msg = document.getElementById("login-msg");
+                if (msg) { msg.style.color = "red"; msg.innerText = (e && e.message) ? e.message : String(e); }
+            }
+            return null;
+        });
+        if (!handle) return;
+        let percorsoCampo = ((document.getElementById("login-admin-percorso") || {}).value || "").trim();
+        if (percorsoCampo) localStorage.setItem(LS_PERCORSO, percorsoCampo);
+        let db = preparaDatabasePerScrittura(creaDatabaseVuoto(), { includiConfig: true });
+        await scriviDatabaseEEntra(handle, db);
+    }
+
     function chiudiModaleLogin() {
         let overlay = document.getElementById("modale-login");
         if (overlay) {
@@ -2497,21 +2676,8 @@
             let file = await handles[0].getFile();
             let buf = await file.arrayBuffer();
             let wb = XLSX.read(buf, { type: "array", cellDates: false, cellNF: false, cellStyles: false, cellFormula: false, cellHTML: false });
-            compattaFogliWorkbook(wb);
             let db = await rileggiDatabaseDaFile();
-            FOGLI_DB.forEach(function(nome) {
-                let records = [];
-                if (wb.Sheets[nome]) {
-                    let matrix = sheetToMatrix(wb.Sheets[nome], numColonneFoglio(nome));
-                    for (let i = 1; i < matrix.length; i++) {
-                        let rec = normalizzaRecord(rowToRecord(nome, matrix[i]));
-                        if (rec.numero === "" || rec.numero == null) continue;
-                        records.push(rec);
-                    }
-                }
-                db.sheets[nome] = records;
-            });
-            if (wb.SheetNames.includes("_Config")) leggiConfigDaWorkbook(wb);
+            importaFogliExcelNelDatabase(db, wb);
             let wr = await conUiSalvataggio(function() { return scriviDatabaseSuFile(db, { includiConfig: true }); });
             if (!wr || !wr.ok) throw new Error((wr && wr.errore) ? wr.errore : "Scrittura JSON non riuscita");
             applicaConfigDatabase(databaseCache || db);
