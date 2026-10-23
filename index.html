@@ -41,6 +41,8 @@
         
         #btn-report { background-color: #7c3aed; color: white; border-color: #6d28d9; display: none; }
         #btn-report:hover { background-color: #6d28d9; }
+        #btn-esporta-tutto { background-color: #059669; color: white; border-color: #047857; }
+        #btn-esporta-tutto:hover { background-color: #047857; }
 
         .pagina { display: none; background-color: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 28px; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06); box-sizing: border-box; max-width: 1150px; }
         .pagina.attiva { display: block; }
@@ -549,6 +551,7 @@
             <span id="badge-db" class="badge-db badge-db-off" title="Stato connessione database JSON">🟠 Modalità Emergenza</span>
             <button class="action-btn" id="btn-esporta-excel" onclick="esportaExcel()">📤 Esporta Excel</button>
             <button class="action-btn" id="btn-report" onclick="generaReportPDF()">📊 Report Aperte (PDF)</button>
+            <button class="action-btn" id="btn-esporta-tutto" onclick="esportaTuttoExcel()">📗 Esporta Tutto in Excel (.xlsx)</button>
             <button class="action-btn attivo" id="btn-azione-nuovo" onclick="cambiaAzione('nuovo')">➕ Nuovo</button>
             <button class="action-btn" id="btn-azione-cerca" onclick="cambiaAzione('cerca')">🔍 Cerca / Modifica</button>
             <button class="action-btn" id="btn-azione-admin" onclick="apriAdmin()">⚙️ Admin</button>
@@ -719,6 +722,7 @@
                 <button type="button" class="btn-main" style="background-color:#0f766e; box-shadow:none;" onclick="inizializzaNuovoExcel()">📄 Inizializza JSON vuoto</button>
                 <button type="button" class="btn-main" style="background-color:#1d4ed8; box-shadow:none;" onclick="importaExcelNelDatabase()">📥 Importa da Excel</button>
                 <button type="button" class="btn-main" style="background-color:#b45309; box-shadow:none;" onclick="esportaExcel()">📤 Esporta Excel</button>
+                <button type="button" class="btn-main" id="btn-esporta-tutto-admin" style="background-color:#059669; box-shadow:none;" onclick="esportaTuttoExcel()">📗 Esporta Tutto in Excel (.xlsx)</button>
             </div>
             <div id="msg-admin-path" class="messaggio-esito" style="margin-top:10px;"></div>
         </div>
@@ -1007,6 +1011,33 @@
         if (is117ImportSheet(nomeFoglio)) return 11;
         if (nomeFoglio === "1173export") return 9;
         return 8;
+    }
+
+    function etichettaCampoExtra(nomeFoglio) {
+        if (nomeFoglio === "11.73import") return "Scaricato con 11.87 export n°";
+        if (nomeFoglio === "1173export") return "Scaricato con 11.87 import n°";
+        if (nomeFoglio === "11.71import") return "Scaricato con 11.86 Export n°";
+        if (nomeFoglio === "1187import") return "1173 export";
+        if (nomeFoglio === "1187export") return "1173 import";
+        if (nomeFoglio === "1186export") return "1171 import";
+        return "Riferimento";
+    }
+
+    function headersExportFoglio(nomeFoglio) {
+        let extra = etichettaCampoExtra(nomeFoglio);
+        if (is117ImportSheet(nomeFoglio)) {
+            return ["Nr. Progressivo", "Data Allestimento", "Data Scadenza", "Partner Dogana", "Status", extra, "Data Registrazione", "Nr. Conto", "Importo garantito (Fr)", "Ora", "Utente"];
+        }
+        if (nomeFoglio === "1173export") {
+            return ["Nr. Progressivo", "Data Allestimento", "Data Scadenza", "Partner Dogana", "Status", extra, "Data Registrazione", "Ora", "Utente"];
+        }
+        return ["Nr. Progressivo", "Data Allestimento", "Partner Dogana", "Status", extra, "Data Registrazione", "Ora", "Utente"];
+    }
+
+    function colonneTestoExport(nomeFoglio) {
+        if (is117ImportSheet(nomeFoglio)) return { date: [1, 2, 6], extra: 5, conto: 7 };
+        if (nomeFoglio === "1173export") return { date: [1, 2, 6], extra: 5, conto: -1 };
+        return { date: [1, 5], extra: 4, conto: -1 };
     }
 
     function foglioTargetCrossRef(nomeFoglio) {
@@ -2210,6 +2241,70 @@
         return wb;
     }
 
+    function nomeFileExportExcel() {
+        let iso = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Europe/Zurich",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit"
+        }).format(new Date());
+        return "Formulari_Dogana_Chiasso_Export_" + iso + ".xlsx";
+    }
+
+    function foglioExportDaRecord(nomeFoglio, records) {
+        let headers = headersExportFoglio(nomeFoglio);
+        let spec = colonneTestoExport(nomeFoglio);
+        let ordinati = (records || []).slice().sort(function(a, b) {
+            return Number(a && a.numero) - Number(b && b.numero);
+        });
+        let matrix = [headers];
+        ordinati.forEach(function(rec) {
+            rec = normalizzaRecord(rec);
+            if (spec.conto >= 0) rec.nrConto = normalizzaNrConto(rec.nrConto, rec.partnerDogana);
+            matrix.push(recordToRowArray(nomeFoglio, rec).map(function(v) { return v == null ? "" : String(v); }));
+        });
+        let ws = {};
+        let nCols = headers.length;
+        for (let r = 0; r < matrix.length; r++) {
+            for (let c = 0; c < nCols; c++) {
+                let val = matrix[r][c] == null ? "" : String(matrix[r][c]);
+                let addr = XLSX.utils.encode_cell({ r: r, c: c });
+                let forzaTesto = r > 0 && (spec.date.indexOf(c) !== -1 || c === spec.extra || c === spec.conto);
+                ws[addr] = forzaTesto ? { t: "s", v: val, z: "@" } : { t: "s", v: val };
+            }
+        }
+        ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(matrix.length - 1, 0), c: nCols - 1 } });
+        ws["!cols"] = headers.map(function(header, c) {
+            let max = String(header).length;
+            for (let r = 1; r < matrix.length; r++) {
+                let len = String(matrix[r][c] == null ? "" : matrix[r][c]).length;
+                if (len > max) max = len;
+            }
+            return { wch: Math.min(Math.max(max + 2, 14), 48) };
+        });
+        return ws;
+    }
+
+    function workbookExportCompleto(db) {
+        ensureXLSX();
+        let wb = XLSX.utils.book_new();
+        FOGLI_DB.forEach(function(nome) {
+            XLSX.utils.book_append_sheet(wb, foglioExportDaRecord(nome, (db && db.sheets && db.sheets[nome]) || []), nome);
+        });
+        let c = (db && db.config) || {};
+        let configRows = [
+            ["chiave", "valore"],
+            ["percorsoDefault", c.percorsoDefault || getPercorsoDefault()],
+            ["contiPartner", JSON.stringify(c.contiPartner || contiPartner)],
+            ["statusCustom117", JSON.stringify(c.statusCustom117 || [])],
+            ["statusCustom118", JSON.stringify(c.statusCustom118 || [])]
+        ];
+        let wsConfig = matrixToSheet(configRows);
+        wsConfig["!cols"] = [{ wch: 22 }, { wch: 80 }];
+        XLSX.utils.book_append_sheet(wb, wsConfig, "_Config");
+        return wb;
+    }
+
     function applicaCrossRefSuDatabase(db, nomeFoglio, payload, nuovoNumero, numeroPrecedente) {
         let foglioTargetNome = foglioTargetCrossRef(nomeFoglio);
         if (!foglioTargetNome || !payload.campoExtra || String(payload.campoExtra).trim() === "") return { ok: true };
@@ -2922,6 +3017,30 @@
         }
     }
 
+    async function esportaTuttoExcel() {
+        let btn = document.getElementById("btn-esporta-tutto");
+        let btnAdmin = document.getElementById("btn-esporta-tutto-admin");
+        let testo = btn ? btn.innerText : "📗 Esporta Tutto in Excel (.xlsx)";
+        let testoAdmin = btnAdmin ? btnAdmin.innerText : testo;
+        try {
+            ensureXLSX();
+            if (btn) { btn.disabled = true; btn.innerText = "Esportazione..."; }
+            if (btnAdmin) { btnAdmin.disabled = true; btnAdmin.innerText = "Esportazione..."; }
+            let db;
+            if (modalitaEmergenza && databaseCache) db = databaseCache;
+            else if (fileHandleDB) db = await rileggiDatabaseDaFile();
+            else throw new Error("Collega prima il database JSON.");
+            let wb = workbookExportCompleto(db);
+            let nomeFile = nomeFileExportExcel();
+            XLSX.writeFile(wb, nomeFile, { bookType: "xlsx", compression: true });
+        } catch (e) {
+            alert("Esportazione Excel non riuscita: " + ((e && e.message) ? e.message : e));
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerText = testo; }
+            if (btnAdmin) { btnAdmin.disabled = false; btnAdmin.innerText = testoAdmin; }
+        }
+    }
+
     async function importaExcelNelDatabase() {
         if (!fileHandleDB) {
             alert("Collega prima il file JSON del database.");
@@ -3358,22 +3477,7 @@
             btnReport.style.display = 'none';
         }
 
-        let nomeCampoExtra = "";
-        if (nomeFoglio === '11.73import') {
-            nomeCampoExtra = "Scaricato con 11.87 export n°";
-        } else if (nomeFoglio === '1173export') {
-            nomeCampoExtra = "Scaricato con 11.87 import n°";
-        } else if (nomeFoglio === '11.71import') {
-            nomeCampoExtra = "Scaricato con 11.86 Export n°";
-        } else if (nomeFoglio === '1187import') {
-            nomeCampoExtra = "1173 export";
-        } else if (nomeFoglio === '1187export') {
-            nomeCampoExtra = "1173 import";
-        } else if (nomeFoglio === '1186export') {
-            nomeCampoExtra = "1171 import";
-        } else {
-            nomeCampoExtra = "Riferimento";
-        }
+        let nomeCampoExtra = etichettaCampoExtra(nomeFoglio);
         
         document.getElementById('label-extra-nuovo').innerText = nomeCampoExtra;
         document.getElementById('label-extra-cerca').innerText = "Cerca " + nomeCampoExtra;
