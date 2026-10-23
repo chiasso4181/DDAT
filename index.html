@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -344,7 +343,7 @@
             font-size: 0.78rem;
             font-weight: 700;
             border: 1px solid transparent;
-            max-width: 280px;
+            max-width: 360px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -857,6 +856,13 @@
     let modalitaEmergenza = false;
     let ultimoBufferXlsx = null;
     let pendingWriteBuffer = null;
+    let ultimoLastModified = null;
+    let ultimoWorkbookCache = null;
+    let codaScritturaPromise = Promise.resolve();
+    let salvataggioInCorso = 0;
+    let turnoScrittura = 0;
+    let includiConfigInCoda = false;
+    let ultimoSalvataggioOk = false;
 
     // ========== BACKEND EXCEL (File System Access + SheetJS + IndexedDB) ==========
 
@@ -907,13 +913,17 @@
     function aggiornaBadgeDB() {
         let badge = document.getElementById("badge-db");
         if (!badge) return;
-        if (dbConnesso && fileHandleDB && !modalitaEmergenza) {
-            badge.className = "badge-db badge-db-ok";
-            badge.textContent = "🟢 DB Connesso";
-            badge.title = fileHandleDB.name || getNomeFileDB();
-        } else {
+        if (modalitaEmergenza || !dbConnesso || !fileHandleDB) {
             badge.className = "badge-db badge-db-off";
             badge.textContent = "🟠 Modalità Emergenza";
+        } else if (salvataggioInCorso > 0) {
+            badge.className = "badge-db badge-db-ok";
+            badge.textContent = "⏳ Salvataggio su Excel in corso...";
+            badge.title = fileHandleDB.name || getNomeFileDB();
+        } else {
+            badge.className = "badge-db badge-db-ok";
+            badge.textContent = ultimoSalvataggioOk ? "🟢 DB Connesso (Salvato)" : "🟢 DB Connesso";
+            badge.title = fileHandleDB.name || getNomeFileDB();
         }
         let info = document.getElementById("login-db-info");
         if (info) {
@@ -1035,7 +1045,22 @@
         let partner = String(partnerDogana == null ? "" : partnerDogana).trim();
         if (partner.charAt(0) === "'") partner = partner.slice(1).trim();
         let daData = valoreGrezzo instanceof Date;
-        let s = daData ? dataContoInStringa(valoreGrezzo) : String(valoreGrezzo == null ? "" : valoreGrezzo).trim();
+        let s;
+        if (daData) {
+            s = dataContoInStringa(valoreGrezzo);
+        } else if (typeof valoreGrezzo === "number" && isFinite(valoreGrezzo) && typeof XLSX !== "undefined" && XLSX.SSF) {
+            s = "";
+            try {
+                let d = XLSX.SSF.parse_date_code(valoreGrezzo);
+                if (d && d.y >= 1900 && d.m >= 1 && d.d >= 1) {
+                    s = String(d.d).padStart(2, "0") + "/" + String(d.m).padStart(2, "0") + "/" + d.y;
+                    daData = true;
+                }
+            } catch (e) { s = ""; }
+            if (!daData) s = String(valoreGrezzo);
+        } else {
+            s = String(valoreGrezzo == null ? "" : valoreGrezzo).trim();
+        }
         if (s.charAt(0) === "'") s = s.slice(1).trim();
 
         let casoA = s.match(/^0?1[\/\.\-](\d{1,2})[\/\.\-](\d{4,5})$/);
@@ -1203,11 +1228,8 @@
         FOGLI_DB.forEach(function(nome) {
             if (!wb.SheetNames.includes(nome)) {
                 XLSX.utils.book_append_sheet(wb, matrixToSheet([headersPerFoglio(nome)]), nome);
-            } else {
-                let mat = sheetToMatrix(wb.Sheets[nome], numColonneFoglio(nome));
-                if (mat.length === 0) {
-                    wb.Sheets[nome] = matrixToSheet([headersPerFoglio(nome)]);
-                }
+            } else if (!wb.Sheets[nome] || !wb.Sheets[nome]["!ref"]) {
+                wb.Sheets[nome] = matrixToSheet([headersPerFoglio(nome)]);
             }
         });
         if (!wb.SheetNames.includes("_Config")) {
@@ -1306,23 +1328,128 @@
         if (campoUtente) campoUtente.value = nome;
     }
 
+    function memorizzaWorkbook(wb, lastModified) {
+        ultimoWorkbookCache = wb;
+        workbookCache = wb;
+        if (typeof lastModified === "number") ultimoLastModified = lastModified;
+    }
+
+    function bloccaBottoniSalva() {
+        ["btn-salva-nuovo", "btn-salva-modifica", "btn-salva-righe-modificate"].forEach(function(id) {
+            let b = document.getElementById(id);
+            if (b) b.disabled = true;
+        });
+    }
+
+    function sbloccaBottoniSalva() {
+        if (salvataggioInCorso > 0) return;
+        ["btn-salva-nuovo", "btn-salva-modifica", "btn-salva-righe-modificate"].forEach(function(id) {
+            let b = document.getElementById(id);
+            if (!b) return;
+            if (id === "btn-salva-nuovo" && b.innerText === "Record Salvato") return;
+            b.disabled = false;
+        });
+    }
+
+    function imponiRigaTesto(ws, riga, valori) {
+        for (let c = 0; c < valori.length; c++) {
+            let v = valori[c];
+            ws[XLSX.utils.encode_cell({ r: riga, c: c })] = { t: "s", v: v == null ? "" : String(v) };
+        }
+        let range = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]) : { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } };
+        if (riga > range.e.r) range.e.r = riga;
+        if (riga < range.s.r) range.s.r = riga;
+        if (valori.length - 1 > range.e.c) range.e.c = valori.length - 1;
+        ws["!ref"] = XLSX.utils.encode_range(range);
+    }
+
+    function aggiungiRigaInCoda(ws, valori) {
+        let prima = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).e.r : 0;
+        XLSX.utils.sheet_add_aoa(ws, [valori], { origin: -1 });
+        let dopo = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).e.r : prima + 1;
+        imponiRigaTesto(ws, dopo > prima ? dopo : prima + 1, valori);
+    }
+
+    function leggiTestoCella(ws, r, c) {
+        let cell = ws[XLSX.utils.encode_cell({ r: r, c: c })];
+        if (!cell) return "";
+        return cellToDisplay(valoreCellaGrezzo(cell));
+    }
+
+    function trovaRigaSuFoglio(ws, numero) {
+        if (!ws || !ws["!ref"]) return -1;
+        let n = Number(numero);
+        if (isNaN(n)) return -1;
+        let range = XLSX.utils.decode_range(ws["!ref"]);
+        for (let r = range.s.r + 1; r <= range.e.r; r++) {
+            let cell = ws[XLSX.utils.encode_cell({ r: r, c: 0 })];
+            if (cell && cell.v !== "" && cell.v != null && Number(cell.v) === n) return r;
+        }
+        return -1;
+    }
+
+    function maxProgressivoFoglio(ws) {
+        if (!ws || !ws["!ref"]) return 0;
+        let range = XLSX.utils.decode_range(ws["!ref"]);
+        let max = 0;
+        for (let r = range.s.r + 1; r <= range.e.r; r++) {
+            let cell = ws[XLSX.utils.encode_cell({ r: r, c: 0 })];
+            if (!cell || cell.v === "" || cell.v == null) continue;
+            let n = Number(cell.v);
+            if (!isNaN(n) && n > max) max = n;
+        }
+        return max;
+    }
+
+    function indiciDataOra(nomeFoglio) {
+        if (is118Sheet(nomeFoglio)) return { data: 5, ora: 6 };
+        if (is117ImportSheet(nomeFoglio)) return { data: 6, ora: 9 };
+        return { data: 6, ora: 7 };
+    }
+
+    function aggiornaCrossRefAllaRiga(ws, riga, numOrigine, statusOrigine) {
+        let extraAddr = XLSX.utils.encode_cell({ r: riga, c: 5 });
+        let extraCell = ws[extraAddr];
+        let valAttuale = stripExtraApostrophe(cellToDisplay(extraCell ? valoreCellaGrezzo(extraCell) : ""));
+        let arrayValori = valAttuale ? valAttuale.split("/").map(function(x) { return x.trim(); }).filter(Boolean) : [];
+        let numStr = String(numOrigine).trim();
+        if (arrayValori.indexOf(numStr) === -1) {
+            arrayValori.push(numStr);
+            ws[extraAddr] = { t: "s", v: arrayValori.join("/") };
+        }
+        if (statusOrigine === "Completo") {
+            ws[XLSX.utils.encode_cell({ r: riga, c: 4 })] = { t: "s", v: "Chiuso" };
+        }
+    }
+
     async function rileggiWorkbookDaFile() {
         ensureXLSX();
-        if (!fileHandleDB) throw new Error("Nessun file database collegato.");
+        if (!fileHandleDB) {
+            if (ultimoWorkbookCache) return ultimoWorkbookCache;
+            throw new Error("Nessun file database collegato.");
+        }
+        if (salvataggioInCorso > 0 && ultimoWorkbookCache) {
+            workbookCache = ultimoWorkbookCache;
+            return ultimoWorkbookCache;
+        }
         let file;
         try {
             file = await fileHandleDB.getFile();
         } catch (e) {
             let negato = e && (e.name === "NotAllowedError" || e.name === "SecurityError");
+            if (ultimoWorkbookCache) return ultimoWorkbookCache;
             if (negato) throw new Error("Permesso lettura/scrittura negato sul file Excel.");
             throw e;
         }
+        if (ultimoWorkbookCache && file.lastModified === ultimoLastModified) {
+            workbookCache = ultimoWorkbookCache;
+            return ultimoWorkbookCache;
+        }
         let buf = await file.arrayBuffer();
         ultimoBufferXlsx = buf.slice(0);
-        let wb = XLSX.read(buf, { type: "array", cellDates: true });
+        let wb = XLSX.read(buf, { type: "array", cellDates: false, cellNF: false, cellStyles: false, cellFormula: false, cellHTML: false });
         assicuratiFogli(wb);
-        correggiNrContoNelWorkbook(wb);
-        workbookCache = wb;
+        memorizzaWorkbook(wb, file.lastModified);
         return wb;
     }
 
@@ -1347,14 +1474,16 @@
         } catch (e) { /* ignore */ }
     }
 
-    async function scriviWorkbookSuFile(wb) {
+    async function scriviWorkbookSuFile(wb, opzioni) {
         ensureXLSX();
-        scriviConfigNelWorkbook(wb);
-        let out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+        if (opzioni && opzioni.includiConfig) scriviConfigNelWorkbook(wb);
+        let out = XLSX.write(wb, { bookType: "xlsx", type: "array", compression: false });
         ultimoBufferXlsx = out;
-        await backupBufferIDB(out);
+        pendingWriteBuffer = out;
+        backupBufferIDB(out);
+        memorizzaWorkbook(wb);
         if (!fileHandleDB) {
-            pendingWriteBuffer = out;
+            ultimoSalvataggioOk = false;
             mostraBarraEmergenza("Nessun handle file — usa Riprova o Scarica copia emergenza.");
             return { ok: false, pendingSync: true };
         }
@@ -1362,14 +1491,55 @@
             let writable = await fileHandleDB.createWritable();
             await writable.write(out);
             await writable.close();
+            try {
+                let fileAgg = await fileHandleDB.getFile();
+                ultimoLastModified = fileAgg.lastModified;
+            } catch (e2) { /* la prossima lettura confronta di nuovo lastModified */ }
+            ultimoSalvataggioOk = true;
             nascondiBarraEmergenza();
             dbConnesso = true;
             return { ok: true, pendingSync: false };
         } catch (e) {
             pendingWriteBuffer = out;
+            ultimoSalvataggioOk = false;
             mostraBarraEmergenza("createWritable fallito: " + (e && e.message ? e.message : e));
             return { ok: false, pendingSync: true, errore: String(e) };
         }
+    }
+
+    function accodaScritturaExcel(wb, opzioni) {
+        memorizzaWorkbook(wb);
+        if (opzioni && opzioni.includiConfig) includiConfigInCoda = true;
+        salvataggioInCorso++;
+        aggiornaBadgeDB();
+        bloccaBottoniSalva();
+        let mioTurno = ++turnoScrittura;
+        let lavoro = codaScritturaPromise.then(function() {
+            return new Promise(function(resolve) { setTimeout(resolve, 0); }).then(function() {
+                if (mioTurno !== turnoScrittura) {
+                    salvataggioInCorso = Math.max(0, salvataggioInCorso - 1);
+                    if (salvataggioInCorso === 0) {
+                        aggiornaBadgeDB();
+                        sbloccaBottoniSalva();
+                    }
+                    return { ok: true, saltata: true };
+                }
+                let includi = includiConfigInCoda;
+                includiConfigInCoda = false;
+                return scriviWorkbookSuFile(ultimoWorkbookCache || wb, { includiConfig: includi }).then(function(wr) {
+                    salvataggioInCorso = Math.max(0, salvataggioInCorso - 1);
+                    aggiornaBadgeDB();
+                    if (salvataggioInCorso === 0) sbloccaBottoniSalva();
+                    return wr;
+                });
+            });
+        });
+        codaScritturaPromise = lavoro.catch(function() {
+            salvataggioInCorso = Math.max(0, salvataggioInCorso - 1);
+            aggiornaBadgeDB();
+            sbloccaBottoniSalva();
+        });
+        return lavoro;
     }
 
     function rowToRecord(nomeFoglio, row) {
@@ -1513,18 +1683,17 @@
                 return { successo: true, datiReport: arrayReport };
             }
 
-            // Cross-ref pre-check (come GAS)
             let foglioTargetNome = foglioTargetCrossRef(nomeFoglio);
-            let rigaTargetIndex = -1;
-            let matrixTarget = null;
+            let rigaTarget = -1;
+            let wsTarget = null;
             if (foglioTargetNome && payload.campoExtra && String(payload.campoExtra).trim() !== "") {
                 let numTargetCercato = Number(String(payload.campoExtra).trim());
                 if (!wb.SheetNames.includes(foglioTargetNome)) {
                     return { successo: false, messaggio: "Attenzione: Il foglio " + foglioTargetNome + " non esiste." };
                 }
-                matrixTarget = sheetToMatrix(wb.Sheets[foglioTargetNome], numColonneFoglio(foglioTargetNome));
-                rigaTargetIndex = trovaRigaPerNumero(matrixTarget, numTargetCercato);
-                if (rigaTargetIndex === -1) {
+                wsTarget = wb.Sheets[foglioTargetNome];
+                rigaTarget = trovaRigaSuFoglio(wsTarget, numTargetCercato);
+                if (rigaTarget === -1) {
                     return {
                         successo: false,
                         messaggio: "ERRORE DI REGISTRAZIONE! Il riferimento " + numTargetCercato + " non esiste nel foglio " + foglioTargetNome + ". Registrazione annullata."
@@ -1532,55 +1701,51 @@
                 }
             }
 
-            let nCol = numColonneFoglio(nomeFoglio);
-            let matrix = sheetToMatrix(wb.Sheets[nomeFoglio], nCol);
-            if (matrix.length === 0) matrix = [headersPerFoglio(nomeFoglio)];
+            let ws = wb.Sheets[nomeFoglio];
+            if (!ws || !ws["!ref"]) {
+                ws = matrixToSheet([headersPerFoglio(nomeFoglio)]);
+                wb.Sheets[nomeFoglio] = ws;
+            }
 
             if (azione === "nuovo") {
-                let nuovoNumero = maxProgressivo(matrix) + 1;
+                let nuovoNumero = maxProgressivoFoglio(ws) + 1;
                 let z = zurichNow();
                 let nuovaRiga = buildRowArray(nomeFoglio, payload, nuovoNumero, z.data, z.ora);
-                matrix.push(nuovaRiga);
-                pubblicaFoglioDaMatrice(wb, nomeFoglio, matrix);
-                if (rigaTargetIndex !== -1 && matrixTarget) {
-                    eseguiAggiornamentoTargetMatrix(matrixTarget, rigaTargetIndex, nuovoNumero, payload.status);
-                    pubblicaFoglioDaMatrice(wb, foglioTargetNome, matrixTarget);
-                }
+                aggiungiRigaInCoda(ws, nuovaRiga);
+                if (rigaTarget !== -1 && wsTarget) aggiornaCrossRefAllaRiga(wsTarget, rigaTarget, nuovoNumero, payload.status);
                 pushBackupEmergenzaJSON({ azione: "nuovo", nomeFoglio: nomeFoglio, numero: nuovoNumero, payload: payload });
-                let wr = await scriviWorkbookSuFile(wb);
-                workbookCache = wb;
+                memorizzaWorkbook(wb);
+                accodaScritturaExcel(wb);
                 return {
                     successo: true,
-                    messaggio: wr.pendingSync ? "Formulario salvato in emergenza (sync Excel pendente)!" : "Formulario salvato!",
-                    numeroAssegnato: nuovoNumero,
-                    pendingSync: !!wr.pendingSync
+                    status: "success",
+                    numero: nuovoNumero,
+                    messaggio: "Formulario registrato.",
+                    numeroAssegnato: nuovoNumero
                 };
             }
 
             if (azione === "modifica") {
                 let numeroDaModificare = Number(payload.numeroDaModificare);
-                let idx = trovaRigaPerNumero(matrix, numeroDaModificare);
-                if (idx === -1) {
+                let riga = trovaRigaSuFoglio(ws, numeroDaModificare);
+                if (riga === -1) {
                     return { successo: false, messaggio: "Errore: record originale non trovato." };
                 }
                 let z = zurichNow();
-                // mantieni dataReg/ora originali se presenti
-                let dataReg = cellToDisplay(matrix[idx][is118Sheet(nomeFoglio) ? 5 : 6]) || z.data;
-                let oraIdx = is118Sheet(nomeFoglio) ? 6 : (is117ImportSheet(nomeFoglio) ? 9 : 7);
-                let oraReg = cellToDisplay(matrix[idx][oraIdx]) || z.ora;
-                matrix[idx] = buildRowArray(nomeFoglio, payload, numeroDaModificare, dataReg, oraReg);
-                pubblicaFoglioDaMatrice(wb, nomeFoglio, matrix);
-                if (rigaTargetIndex !== -1 && matrixTarget) {
-                    eseguiAggiornamentoTargetMatrix(matrixTarget, rigaTargetIndex, numeroDaModificare, payload.status);
-                    pubblicaFoglioDaMatrice(wb, foglioTargetNome, matrixTarget);
-                }
+                let idxTempi = indiciDataOra(nomeFoglio);
+                let dataReg = leggiTestoCella(ws, riga, idxTempi.data) || z.data;
+                let oraReg = leggiTestoCella(ws, riga, idxTempi.ora) || z.ora;
+                imponiRigaTesto(ws, riga, buildRowArray(nomeFoglio, payload, numeroDaModificare, dataReg, oraReg));
+                if (rigaTarget !== -1 && wsTarget) aggiornaCrossRefAllaRiga(wsTarget, rigaTarget, numeroDaModificare, payload.status);
                 pushBackupEmergenzaJSON({ azione: "modifica", nomeFoglio: nomeFoglio, numero: numeroDaModificare, payload: payload });
-                let wr = await scriviWorkbookSuFile(wb);
-                workbookCache = wb;
+                memorizzaWorkbook(wb);
+                accodaScritturaExcel(wb);
                 return {
                     successo: true,
-                    messaggio: wr.pendingSync ? "Modifica in emergenza (sync Excel pendente)!" : "Modifica salvata con successo!",
-                    pendingSync: !!wr.pendingSync
+                    status: "success",
+                    numero: numeroDaModificare,
+                    messaggio: "Modifica registrata.",
+                    numeroAssegnato: numeroDaModificare
                 };
             }
 
@@ -1595,7 +1760,8 @@
         await salvaHandleIDB();
         if (creaSeVuoto) {
             workbookCache = creaWorkbookVuoto();
-            await scriviWorkbookSuFile(workbookCache);
+            memorizzaWorkbook(workbookCache);
+            await accodaScritturaExcel(workbookCache);
         } else {
             await rileggiWorkbookDaFile();
             if (workbookCache) leggiConfigDaWorkbook(workbookCache);
@@ -1724,6 +1890,7 @@
             if (!handles || !handles[0]) return;
             handle = handles[0];
         }
+        await codaScritturaPromise.catch(function() {});
         if (!pendingWriteBuffer && !ultimoBufferXlsx) {
             alert("Nessun buffer di emergenza da riscrivere.");
             return;
@@ -1735,6 +1902,11 @@
             let writable = await fileHandleDB.createWritable();
             await writable.write(buf);
             await writable.close();
+            try {
+                let fileAgg = await fileHandleDB.getFile();
+                ultimoLastModified = fileAgg.lastModified;
+            } catch (e2) { /* confrontato alla prossima lettura */ }
+            ultimoSalvataggioOk = true;
             nascondiBarraEmergenza();
             dbConnesso = true;
             aggiornaBadgeDB();
@@ -2240,8 +2412,8 @@
         document.getElementById('n_importo_garantito').value = '';
         document.getElementById('display-numero-nuovo').innerText = '...';
         document.getElementById('msg-nuovo').innerText = '';
-        document.getElementById('btn-salva-nuovo').disabled = false;
         document.getElementById('btn-salva-nuovo').innerText = "Salva Formulario";
+        document.getElementById('btn-salva-nuovo').disabled = salvataggioInCorso > 0;
         
         document.getElementById('msg-modifica').innerText = '';
         document.getElementById('area-risultati').style.display = 'none';
@@ -2451,7 +2623,8 @@
                     btn.disabled = true; btn.innerText = "Record Salvato"; 
                     setTimeout(() => { svuotaTutto(); msg.innerText = "Pronto per il prossimo!"; }, 3000); 
                 } else {
-                    btn.disabled = false; btn.innerText = testoOriginaleBottone;
+                    btn.innerText = testoOriginaleBottone;
+                    btn.disabled = salvataggioInCorso > 0;
                     if (risultatiRicerca[indiceCorrente]) {
                         risultatiRicerca[indiceCorrente].dataAll = datiDaSpedire.dataAllestimento;
                         risultatiRicerca[indiceCorrente].dataScad = datiDaSpedire.dataScadenza;
@@ -3030,8 +3203,8 @@
                 err++;
             }
         }
-        btn.disabled = false;
         btn.innerText = "💾 Salva Righe Modificate";
+        btn.disabled = salvataggioInCorso > 0;
         if (msgTab) {
             msgTab.style.color = err ? "red" : "green";
             msgTab.innerText = "Salvate: " + ok + (err ? " — Errori: " + err : "") + (skip ? " — Annullate: " + skip : "");
@@ -3111,10 +3284,8 @@
 
         try {
             if (fileHandleDB) {
-                let wb = workbookCache || await rileggiWorkbookDaFile();
-                scriviConfigNelWorkbook(wb);
-                await scriviWorkbookSuFile(wb);
-                workbookCache = wb;
+                let wb = ultimoWorkbookCache || workbookCache || await rileggiWorkbookDaFile();
+                await accodaScritturaExcel(wb, { includiConfig: true });
             }
         } catch (e) {
             /* path/config restano in localStorage */
@@ -3138,10 +3309,8 @@
         localStorage.setItem(LS_NOME_FILE, nome);
         try {
             if (fileHandleDB) {
-                let wb = workbookCache || await rileggiWorkbookDaFile();
-                scriviConfigNelWorkbook(wb);
-                await scriviWorkbookSuFile(wb);
-                workbookCache = wb;
+                let wb = ultimoWorkbookCache || workbookCache || await rileggiWorkbookDaFile();
+                await accodaScritturaExcel(wb, { includiConfig: true });
             }
             if (msg) { msg.style.color = "green"; msg.innerText = "Percorso salvato in localStorage" + (fileHandleDB ? " e foglio _Config." : "."); }
             aggiornaBadgeDB();
@@ -3188,7 +3357,6 @@
             handleMemorizzato = handle;
             localStorage.setItem(LS_PERCORSO, percorso);
             localStorage.setItem(LS_NOME_FILE, nomeFile);
-            if (workbookCache) await scriviWorkbookSuFile(workbookCache);
             if (percorsoEl) percorsoEl.value = percorso;
             if (nomeEl) nomeEl.value = nomeFile;
             if (msg) { msg.style.color = "green"; msg.innerText = "File ricollegato: " + handle.name; }
