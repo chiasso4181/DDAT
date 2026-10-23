@@ -523,7 +523,8 @@
     <div class="top-action-bar">
         <div class="titolo-form-corrente" id="display-titolo-foglio">Formulario: 11.73 Import</div>
         <div class="action-buttons">
-            <span id="badge-db" class="badge-db badge-db-off" title="Stato connessione database Excel">🟠 Modalità Emergenza</span>
+            <span id="badge-db" class="badge-db badge-db-off" title="Stato connessione database JSON">🟠 Modalità Emergenza</span>
+            <button class="action-btn" id="btn-esporta-excel" onclick="esportaExcel()">📤 Esporta Excel</button>
             <button class="action-btn" id="btn-report" onclick="generaReportPDF()">📊 Report Aperte (PDF)</button>
             <button class="action-btn attivo" id="btn-azione-nuovo" onclick="cambiaAzione('nuovo')">➕ Nuovo</button>
             <button class="action-btn" id="btn-azione-cerca" onclick="cambiaAzione('cerca')">🔍 Cerca / Modifica</button>
@@ -532,9 +533,9 @@
     </div>
 
     <div id="barra-emergenza" class="barra-emergenza" style="display:none;">
-        <span id="msg-emergenza">Scrittura Excel non riuscita — dati in emergenza locale.</span>
-        <button type="button" class="btn-main" onclick="riprovaScritturaExcel()">🔄 Riprova Scrittura su Excel</button>
-        <button type="button" class="btn-main btn-csv" onclick="scaricaCopiaEmergenza()">📥 Scarica Copia .xlsx di Emergenza</button>
+        <span id="msg-emergenza">Scrittura database non riuscita — dati in emergenza locale.</span>
+        <button type="button" class="btn-main" onclick="riprovaScritturaExcel()">🔄 Riprova Scrittura Database</button>
+        <button type="button" class="btn-main btn-csv" onclick="scaricaCopiaEmergenza()">📥 Scarica Copia JSON di Emergenza</button>
     </div>
 
     <div id="scheda-nuovo" class="pagina attiva">
@@ -677,22 +678,24 @@
         </div>
 
         <div class="admin-sezione">
-            <h2>Database Excel / Percorso</h2>
+            <h2>Database JSON / Percorso</h2>
             <div class="grid-row">
                 <div class="grid-item">
                     <label>Cartella / percorso default</label>
-                    <input type="text" id="admin-percorso-default" placeholder="\\Vf00105a.adb.intra.admin.ch\ezv_os$\os\0\3\2\6\5\66632\40 Tabelle_base\Numerazioni">
+                    <input type="text" id="admin-percorso-default" placeholder="\\Vf00105a.adb.intra.admin.ch\ezv_os$\os\0\3\2\6\5\66632\40 Tabelle_base\Numerazioni\Formulari_Dogana_Chiasso_DB.json">
                 </div>
                 <div class="grid-item">
                     <label>Nome file DB</label>
-                    <input type="text" id="admin-nome-file-db" placeholder="Formulari_Dogana_Chiasso.xlsx">
+                    <input type="text" id="admin-nome-file-db" placeholder="Formulari_Dogana_Chiasso_DB.json">
                 </div>
             </div>
             <div class="admin-azioni">
-                <button type="button" class="btn-main" onclick="salvaPercorsoAdmin()">💾 Salva percorso in Excel+_Config</button>
+                <button type="button" class="btn-main" onclick="salvaPercorsoAdmin()">💾 Salva percorso nel JSON</button>
                 <button type="button" class="btn-main" style="background-color:#64748b; box-shadow:none;" onclick="copiaPercorsoAdmin()">📋 Copia percorso</button>
-                <button type="button" class="btn-main" style="background-color:#1e293b; box-shadow:none;" onclick="ricollegaFileDatabase()">🔗 Cambia / Ricollega file</button>
-                <button type="button" class="btn-main" style="background-color:#0f766e; box-shadow:none;" onclick="inizializzaNuovoExcel()">📄 Inizializza nuovo Excel vuoto</button>
+                <button type="button" class="btn-main" style="background-color:#1e293b; box-shadow:none;" onclick="ricollegaFileDatabase()">🔗 Cambia / Ricollega JSON</button>
+                <button type="button" class="btn-main" style="background-color:#0f766e; box-shadow:none;" onclick="inizializzaNuovoExcel()">📄 Inizializza JSON vuoto</button>
+                <button type="button" class="btn-main" style="background-color:#1d4ed8; box-shadow:none;" onclick="importaExcelNelDatabase()">📥 Importa da Excel</button>
+                <button type="button" class="btn-main" style="background-color:#b45309; box-shadow:none;" onclick="esportaExcel()">📤 Esporta Excel</button>
             </div>
             <div id="msg-admin-path" class="messaggio-esito" style="margin-top:10px;"></div>
         </div>
@@ -757,25 +760,25 @@
 
         <div id="login-caso-primo" style="display:none;">
             <div class="login-avviso">⚠️ Database non ancora collegato su questa postazione</div>
-            <p class="modale-testo">L'accesso diretto è disabilitato finché un amministratore non collega il file Excel.</p>
+            <p class="modale-testo">L'accesso diretto è disabilitato finché un amministratore non collega il file JSON del database.</p>
             <div class="modale-azioni">
                 <button type="button" class="btn-modale btn-modale-admin" id="btn-login-configura-admin" onclick="mostraPannelloAdminLogin()">🔒 Configura Percorso DB (Admin)</button>
             </div>
         </div>
 
         <div id="login-pannello-admin" style="display:none;">
-            <p class="modale-testo">Verifica la password, poi seleziona il file Excel del database.</p>
+            <p class="modale-testo">Verifica la password, poi seleziona il file JSON del database.</p>
             <div class="grid-item" style="margin-bottom:10px;">
                 <label for="login-admin-password">Password Admin</label>
                 <input type="password" id="login-admin-password" autocomplete="current-password" placeholder="Password Admin">
             </div>
             <div class="grid-item" style="margin-bottom:10px;">
                 <label for="login-admin-percorso">Percorso database</label>
-                <input type="text" id="login-admin-percorso" value="\\Vf00105a.adb.intra.admin.ch\ezv_os$\os\0\3\2\6\5\66632\40 Tabelle_base\Numerazioni\Formulari_Dogana_Chiasso.xlsx" spellcheck="false">
+                <input type="text" id="login-admin-percorso" value="\\Vf00105a.adb.intra.admin.ch\ezv_os$\os\0\3\2\6\5\66632\40 Tabelle_base\Numerazioni\Formulari_Dogana_Chiasso_DB.json" spellcheck="false">
             </div>
             <div class="modale-azioni">
                 <button type="button" class="btn-modale btn-modale-secondario" onclick="copiaPercorsoLoginAdmin()">📋 Copia percorso</button>
-                <button type="button" class="btn-modale btn-modale-chiasso" id="btn-login-seleziona-excel" onclick="sbloccaESelezionaFileExcel()">📂 Sblocca e Seleziona File Excel DB</button>
+                <button type="button" class="btn-modale btn-modale-chiasso" id="btn-login-seleziona-excel" onclick="sbloccaESelezionaFileExcel()">📂 Sblocca e Seleziona File JSON</button>
                 <button type="button" class="btn-login-admin-link" onclick="nascondiPannelloAdminLogin()">← Torna all'accesso</button>
             </div>
         </div>
@@ -808,7 +811,7 @@
     <div class="blocco-rete-card">
         <div class="blocco-rete-icona" aria-hidden="true">🛑</div>
         <h2 id="blocco-rete-titolo">⚠️ Avvio da Cartella di Rete non consentito</h2>
-        <p class="blocco-rete-sottotitolo">Hai aperto il file <code>index.html</code> direttamente dalla cartella condivisa aziendale. Per motivi di sicurezza di Windows, da questa posizione il salvataggio sul file Excel è bloccato.</p>
+        <p class="blocco-rete-sottotitolo">Hai aperto il file <code>index.html</code> direttamente dalla cartella condivisa aziendale. Per motivi di sicurezza di Windows, da questa posizione il salvataggio sul database JSON è bloccato.</p>
         <ol class="blocco-rete-passi">
             <li>Chiudi questa finestra del browser.</li>
             <li>Nella cartella di rete, fai <strong>Tasto destro</strong> sul file <strong><code>index.html</code></strong> e scegli <strong>Copia</strong>.</li>
@@ -832,7 +835,8 @@
     const SS_PASSWORD_OK = "passwordSessioneOk";
 
     const DEFAULT_CARTELLA = "\\\\Vf00105a.adb.intra.admin.ch\\ezv_os$\\os\\0\\3\\2\\6\\5\\66632\\40 Tabelle_base\\Numerazioni";
-    const DEFAULT_NOME_FILE = "Formulari_Dogana_Chiasso.xlsx";
+    const DEFAULT_NOME_FILE = "Formulari_Dogana_Chiasso_DB.json";
+    const DEFAULT_NOME_XLSX = "Formulari_Dogana_Chiasso.xlsx";
     const DEFAULT_PERCORSO = DEFAULT_CARTELLA + "\\" + DEFAULT_NOME_FILE;
 
     const IDB_NAME = "DoganaChiassoDB";
@@ -852,10 +856,12 @@
     let fileHandleDB = null;
     let dirHandleDB = null;
     let workbookCache = null;
+    let databaseCache = null;
     let dbConnesso = false;
     let modalitaEmergenza = false;
     let ultimoBufferXlsx = null;
     let pendingWriteBuffer = null;
+    let pendingWriteText = null;
     let codaScrittura = Promise.resolve();
     let salvataggioInCorso = 0;
     let ultimoSalvataggioOk = false;
@@ -865,12 +871,16 @@
     function getPercorsoDefault() {
         let salvato = localStorage.getItem(LS_PERCORSO);
         if (!salvato) return DEFAULT_PERCORSO;
+        let norm = salvato.replace(/\//g, "\\");
         let vecchioLocale = "C:\\Users\\cgiud\\OneDrive\\numerazioni\\Formulari_Dogana_Chiasso.xlsx";
-        if (salvato.replace(/\//g, "\\").toLowerCase() === vecchioLocale.toLowerCase()) return DEFAULT_PERCORSO;
+        if (norm.toLowerCase() === vecchioLocale.toLowerCase()) return DEFAULT_PERCORSO;
+        if (norm.toLowerCase().endsWith(".xlsx")) return DEFAULT_PERCORSO;
         return salvato;
     }
     function getNomeFileDB() {
-        return localStorage.getItem(LS_NOME_FILE) || DEFAULT_NOME_FILE;
+        let nome = localStorage.getItem(LS_NOME_FILE) || DEFAULT_NOME_FILE;
+        if (String(nome).toLowerCase().endsWith(".xlsx")) return DEFAULT_NOME_FILE;
+        return nome;
     }
 
     function openIDB() {
@@ -914,7 +924,7 @@
             badge.textContent = "🟠 Modalità Emergenza";
         } else if (salvataggioInCorso > 0) {
             badge.className = "badge-db badge-db-ok";
-            badge.textContent = "⏳ Salvataggio su Excel in corso...";
+            badge.textContent = "⏳ Salvataggio database in corso...";
             badge.title = fileHandleDB.name || getNomeFileDB();
         } else {
             badge.className = "badge-db badge-db-ok";
@@ -934,13 +944,14 @@
         let barra = document.getElementById("barra-emergenza");
         let el = document.getElementById("msg-emergenza");
         if (barra) barra.style.display = "flex";
-        if (el) el.textContent = msg || "Scrittura Excel non riuscita — dati in emergenza locale.";
+        if (el) el.textContent = msg || "Scrittura database non riuscita — dati in emergenza locale.";
         aggiornaBadgeDB();
     }
 
     function nascondiBarraEmergenza() {
         modalitaEmergenza = false;
         pendingWriteBuffer = null;
+        pendingWriteText = null;
         let barra = document.getElementById("barra-emergenza");
         if (barra) barra.style.display = "none";
         aggiornaBadgeDB();
@@ -1728,6 +1739,314 @@
         return isNaN(importo) ? 0 : importo;
     }
 
+    function creaDatabaseVuoto() {
+        let sheets = {};
+        FOGLI_DB.forEach(function(nome) { sheets[nome] = []; });
+        return {
+            version: 2,
+            updatedAt: new Date().toISOString(),
+            config: {
+                percorsoDefault: getPercorsoDefault(),
+                contiPartner: JSON.parse(JSON.stringify(contiPartner)),
+                statusCustom117: (statusExtra117 || []).slice(),
+                statusCustom118: (statusExtra118 || []).slice()
+            },
+            sheets: sheets
+        };
+    }
+
+    function normalizzaRecord(rec) {
+        rec = rec || {};
+        let numero = rec.numero;
+        if (numero !== "" && numero != null && !isNaN(Number(numero))) numero = Number(numero);
+        else numero = "";
+        return {
+            numero: numero,
+            dataAll: rec.dataAll == null ? "" : String(rec.dataAll),
+            dataScad: rec.dataScad == null ? "" : String(rec.dataScad),
+            partnerDogana: rec.partnerDogana == null ? "" : String(rec.partnerDogana),
+            status: rec.status == null ? "" : String(rec.status),
+            campoExtra: stripExtraApostrophe(rec.campoExtra == null ? "" : String(rec.campoExtra)),
+            dataReg: rec.dataReg == null ? "" : String(rec.dataReg),
+            nrConto: rec.nrConto == null ? "" : String(rec.nrConto),
+            importoGarantito: rec.importoGarantito == null ? "" : String(rec.importoGarantito),
+            oraReg: rec.oraReg == null ? "" : String(rec.oraReg),
+            utente: rec.utente == null ? "" : String(rec.utente)
+        };
+    }
+
+    function normalizzaDatabase(raw) {
+        let base = creaDatabaseVuoto();
+        if (!raw || typeof raw !== "object") return base;
+        base.version = 2;
+        base.updatedAt = raw.updatedAt ? String(raw.updatedAt) : base.updatedAt;
+        let cfg = raw.config && typeof raw.config === "object" ? raw.config : {};
+        base.config.percorsoDefault = cfg.percorsoDefault ? String(cfg.percorsoDefault) : base.config.percorsoDefault;
+        if (cfg.contiPartner && typeof cfg.contiPartner === "object") base.config.contiPartner = cfg.contiPartner;
+        if (Array.isArray(cfg.statusCustom117)) base.config.statusCustom117 = cfg.statusCustom117;
+        if (Array.isArray(cfg.statusCustom118)) base.config.statusCustom118 = cfg.statusCustom118;
+        let sheets = raw.sheets && typeof raw.sheets === "object" ? raw.sheets : {};
+        FOGLI_DB.forEach(function(nome) {
+            let lista = Array.isArray(sheets[nome]) ? sheets[nome] : [];
+            base.sheets[nome] = lista.map(normalizzaRecord).filter(function(rec) {
+                return rec.numero !== "" && rec.numero != null;
+            });
+        });
+        return base;
+    }
+
+    function applicaConfigDatabase(db) {
+        if (!db || !db.config) return;
+        let c = db.config;
+        if (c.percorsoDefault) localStorage.setItem(LS_PERCORSO, String(c.percorsoDefault));
+        if (c.contiPartner && typeof c.contiPartner === "object" && Object.keys(c.contiPartner).length) {
+            contiPartner = c.contiPartner;
+            localStorage.setItem(LS_CONTI_PARTNER, JSON.stringify(contiPartner));
+        }
+        if (Array.isArray(c.statusCustom117)) {
+            statusExtra117 = c.statusCustom117;
+            localStorage.setItem(LS_STATUS_117, JSON.stringify(statusExtra117));
+        }
+        if (Array.isArray(c.statusCustom118)) {
+            statusExtra118 = c.statusCustom118;
+            localStorage.setItem(LS_STATUS_118, JSON.stringify(statusExtra118));
+        }
+    }
+
+    function preparaDatabasePerScrittura(db, opzioni) {
+        if (!db || typeof db !== "object") db = creaDatabaseVuoto();
+        db.version = 2;
+        db.updatedAt = new Date().toISOString();
+        if (!db.config || typeof db.config !== "object") db.config = {};
+        if (!db.config.percorsoDefault) db.config.percorsoDefault = getPercorsoDefault();
+        if (!db.sheets || typeof db.sheets !== "object") db.sheets = {};
+        FOGLI_DB.forEach(function(nome) {
+            if (!Array.isArray(db.sheets[nome])) db.sheets[nome] = [];
+        });
+        if (opzioni && opzioni.includiConfig) {
+            db.config = {
+                percorsoDefault: getPercorsoDefault(),
+                contiPartner: contiPartner,
+                statusCustom117: statusExtra117 || [],
+                statusCustom118: statusExtra118 || []
+            };
+        }
+        return db;
+    }
+
+    async function rileggiDatabaseDaFile() {
+        if (!fileHandleDB) throw new Error("Nessun file database collegato.");
+        let file;
+        try {
+            file = await fileHandleDB.getFile();
+        } catch (e) {
+            let negato = e && (e.name === "NotAllowedError" || e.name === "SecurityError");
+            if (negato) throw new Error("Permesso lettura/scrittura negato sul database JSON.");
+            throw e;
+        }
+        let text = await file.text();
+        let trimmed = text.trim();
+        if (!trimmed) {
+            let vuoto = creaDatabaseVuoto();
+            databaseCache = vuoto;
+            return vuoto;
+        }
+        if (trimmed.charAt(0) === "P" && trimmed.charAt(1) === "K") {
+            throw new Error("Il file collegato è un Excel. Seleziona " + DEFAULT_NOME_FILE + " oppure importa l'Excel nel database JSON.");
+        }
+        let parsed;
+        try {
+            parsed = JSON.parse(trimmed);
+        } catch (e) {
+            throw new Error("Il file JSON del database non è leggibile.");
+        }
+        let db = normalizzaDatabase(parsed);
+        applicaConfigDatabase(db);
+        databaseCache = db;
+        return db;
+    }
+
+    async function scriviDatabaseSuDisco(db, opzioni) {
+        preparaDatabasePerScrittura(db, opzioni);
+        let text = JSON.stringify(db);
+        let writable = null;
+        try {
+            if (!fileHandleDB) {
+                pendingWriteText = text;
+                ultimoSalvataggioOk = false;
+                mostraBarraEmergenza("Nessun file JSON collegato — usa Riprova o Scarica copia emergenza.");
+                return { ok: false, pendingSync: true };
+            }
+            writable = await fileHandleDB.createWritable();
+            await writable.write(text);
+            await writable.close();
+            writable = null;
+            pendingWriteText = null;
+            ultimoSalvataggioOk = true;
+            databaseCache = db;
+            nascondiBarraEmergenza();
+            dbConnesso = true;
+            return { ok: true, pendingSync: false };
+        } catch (e) {
+            if (writable) {
+                try {
+                    if (typeof writable.abort === "function") await writable.abort();
+                    else await writable.close();
+                } catch (e2) { /* rilascio del lock */ }
+            }
+            pendingWriteText = text;
+            try { await backupBufferIDB(text); } catch (e2) { /* ignore */ }
+            ultimoSalvataggioOk = false;
+            mostraBarraEmergenza("createWritable fallito: " + (e && e.message ? e.message : e));
+            return { ok: false, pendingSync: true, errore: String(e && e.message ? e.message : e) };
+        }
+    }
+
+    async function scriviDatabaseSuFile(db, opzioni) {
+        let precedente = codaScrittura;
+        let rilascia;
+        codaScrittura = new Promise(function(resolve) { rilascia = resolve; });
+        await precedente.catch(function() {});
+        try {
+            return await scriviDatabaseSuDisco(db, opzioni);
+        } finally {
+            rilascia();
+        }
+    }
+
+    function recordDaPayload(nomeFoglio, payload, numero, dataReg, oraReg) {
+        let speciale = is117ImportSheet(nomeFoglio);
+        return normalizzaRecord({
+            numero: numero,
+            dataAll: payload.dataAllestimento || "",
+            dataScad: is118Sheet(nomeFoglio) ? "" : (payload.dataScadenza || ""),
+            partnerDogana: payload.partnerDogana || "",
+            status: payload.status || "",
+            campoExtra: payload.campoExtra || "",
+            dataReg: dataReg || "",
+            nrConto: speciale ? normalizzaNrConto(payload.nrConto || "", payload.partnerDogana || "") : "",
+            importoGarantito: speciale ? (payload.importoGarantito || "") : "",
+            oraReg: oraReg || "",
+            utente: payload.utente || ""
+        });
+    }
+
+    function recordToRowArray(nomeFoglio, rec) {
+        rec = normalizzaRecord(rec);
+        if (is117ImportSheet(nomeFoglio)) {
+            return [rec.numero, rec.dataAll, rec.dataScad, rec.partnerDogana, rec.status, rec.campoExtra, rec.dataReg, rec.nrConto, rec.importoGarantito, rec.oraReg, rec.utente];
+        }
+        if (nomeFoglio === "1173export") {
+            return [rec.numero, rec.dataAll, rec.dataScad, rec.partnerDogana, rec.status, rec.campoExtra, rec.dataReg, rec.oraReg, rec.utente];
+        }
+        return [rec.numero, rec.dataAll, rec.partnerDogana, rec.status, rec.campoExtra, rec.dataReg, rec.oraReg, rec.utente];
+    }
+
+    function trovaIndiceRecord(records, numero) {
+        let n = Number(numero);
+        if (!records || isNaN(n)) return -1;
+        for (let i = 0; i < records.length; i++) {
+            if (Number(records[i].numero) === n) return i;
+        }
+        return -1;
+    }
+
+    function maxProgressivoRecords(records) {
+        let max = 0;
+        if (!records) return 0;
+        for (let i = 0; i < records.length; i++) {
+            let n = Number(records[i] && records[i].numero);
+            if (!isNaN(n) && n > max) max = n;
+        }
+        return max;
+    }
+
+    function mappaProgressiviRecords(records) {
+        let conteggio = {};
+        let max = 0;
+        (records || []).forEach(function(rec) {
+            let n = Number(rec && rec.numero);
+            if (rec == null || rec.numero === "" || rec.numero == null || isNaN(n)) return;
+            conteggio[n] = (conteggio[n] || 0) + 1;
+            if (n > max) max = n;
+        });
+        return { conteggio: conteggio, max: max };
+    }
+
+    function recordMatchSessione(rec, identita) {
+        if (!rec) return false;
+        if (String(rec.utente || "").trim() !== String(identita.utente || "").trim()) return false;
+        if (String(rec.oraReg || "").trim() !== String(identita.oraReg || "").trim()) return false;
+        if (String(rec.dataReg || "").trim() !== String(identita.dataReg || "").trim()) return false;
+        if (identita.dataAllestimento != null && String(rec.dataAll || "").trim() !== String(identita.dataAllestimento).trim()) return false;
+        if (identita.partnerDogana != null && String(rec.partnerDogana || "").trim() !== String(identita.partnerDogana).trim()) return false;
+        if (identita.status != null && String(rec.status || "").trim() !== String(identita.status).trim()) return false;
+        return true;
+    }
+
+    function verificaRecordNuovo(records, nuovoNumero, identita) {
+        let info = mappaProgressiviRecords(records);
+        let n = Number(nuovoNumero);
+        if ((info.conteggio[n] || 0) > 1) {
+            return { ok: false, motivo: "Nr. Progressivo duplicato (" + n + ")." };
+        }
+        let idx = trovaIndiceRecord(records, n);
+        if (idx === -1) {
+            return { ok: false, motivo: "Riga sovrascritta: il numero " + n + " non risulta sul file." };
+        }
+        if (!recordMatchSessione(records[idx], identita)) {
+            return { ok: false, motivo: "Il numero " + n + " è stato preso da un'altra sessione." };
+        }
+        let nostre = (records || []).filter(function(rec) {
+            return rec && rec.numero !== "" && recordMatchSessione(rec, identita);
+        });
+        if (nostre.length !== 1) {
+            return { ok: false, motivo: "La riga di questa sessione risulta duplicata o assente." };
+        }
+        if (info.max !== n) {
+            return { ok: false, motivo: "L'ultimo numero sul foglio è " + info.max + " invece di " + n + ".", rigaIntegra: true };
+        }
+        return { ok: true, numero: n };
+    }
+
+    function aggiornaCrossRefRecord(rec, numOrigine, statusOrigine, numVecchio) {
+        let valAttuale = stripExtraApostrophe(rec.campoExtra || "");
+        let arrayValori = valAttuale ? valAttuale.split("/").map(function(x) { return x.trim(); }).filter(Boolean) : [];
+        if (numVecchio != null && String(numVecchio) !== "" && String(numVecchio) !== String(numOrigine)) {
+            let vecchio = String(numVecchio).trim();
+            arrayValori = arrayValori.filter(function(x) { return x !== vecchio; });
+        }
+        let numStr = String(numOrigine == null ? "" : numOrigine).trim();
+        if (numStr && arrayValori.indexOf(numStr) === -1) arrayValori.push(numStr);
+        rec.campoExtra = arrayValori.join("/");
+        if (statusOrigine === "Completo") rec.status = "Chiuso";
+    }
+
+    function databaseToWorkbook(db) {
+        ensureXLSX();
+        let wb = XLSX.utils.book_new();
+        FOGLI_DB.forEach(function(nome) {
+            let rows = [headersPerFoglio(nome)];
+            (db.sheets[nome] || []).forEach(function(rec) {
+                rows.push(recordToRowArray(nome, rec).map(function(v) { return v == null ? "" : String(v); }));
+            });
+            let ws = matrixToSheet(rows);
+            if (is117ImportSheet(nome)) proteggiColonnaNrConto(ws);
+            XLSX.utils.book_append_sheet(wb, ws, nome);
+        });
+        let c = (db && db.config) || {};
+        let configRows = [
+            ["chiave", "valore"],
+            ["percorsoDefault", c.percorsoDefault || getPercorsoDefault()],
+            ["nomeFileDB", DEFAULT_NOME_FILE],
+            ["contiPartner", JSON.stringify(c.contiPartner || contiPartner)],
+            ["statusCustom117", JSON.stringify(c.statusCustom117 || [])],
+            ["statusCustom118", JSON.stringify(c.statusCustom118 || [])]
+        ];
+        XLSX.utils.book_append_sheet(wb, matrixToSheet(configRows), "_Config");
+        return wb;
+    }
+
     async function salvaNuovoVerificato(payload, nomeFoglio) {
         let z = zurichNow();
         let utente = String(payload.utente || "").trim();
@@ -1746,47 +2065,41 @@
         let ultimoNumeroScritto = null;
 
         return await conUiSalvataggio(async function() {
+            if (FOGLI_DB.indexOf(nomeFoglio) === -1) {
+                return { successo: false, messaggio: "Errore: il foglio '" + nomeFoglio + "' non esiste nel database!" };
+            }
             for (let tentativo = 1; tentativo <= 3; tentativo++) {
-                let wb = await rileggiWorkbookDaFile();
-                assicuratiFogli(wb);
-                compattaFogliWorkbook(wb);
-                if (!wb.SheetNames.includes(nomeFoglio)) {
-                    return { successo: false, messaggio: "Errore: il foglio '" + nomeFoglio + "' non esiste nel file Excel!" };
-                }
-
-                let wsTarget = null;
-                let rigaTarget = -1;
+                let db = await rileggiDatabaseDaFile();
+                let records = db.sheets[nomeFoglio];
+                let numTarget = null;
                 if (foglioTargetNome && payload.campoExtra && String(payload.campoExtra).trim() !== "") {
-                    let numTargetCercato = Number(String(payload.campoExtra).trim());
-                    if (!wb.SheetNames.includes(foglioTargetNome)) {
+                    numTarget = Number(String(payload.campoExtra).trim());
+                    if (!db.sheets[foglioTargetNome]) {
                         return { successo: false, messaggio: "Attenzione: Il foglio " + foglioTargetNome + " non esiste." };
                     }
-                    wsTarget = wb.Sheets[foglioTargetNome];
-                    rigaTarget = trovaRigaSuFoglio(wsTarget, numTargetCercato);
-                    if (rigaTarget === -1) {
+                    if (trovaIndiceRecord(db.sheets[foglioTargetNome], numTarget) === -1) {
                         return {
                             successo: false,
-                            messaggio: "ERRORE DI REGISTRAZIONE! Il riferimento " + numTargetCercato + " non esiste nel foglio " + foglioTargetNome + ". Registrazione annullata."
+                            messaggio: "ERRORE DI REGISTRAZIONE! Il riferimento " + numTarget + " non esiste nel foglio " + foglioTargetNome + ". Registrazione annullata."
                         };
                     }
                 }
 
-                let ws = wb.Sheets[nomeFoglio];
-                if (!ws || !ws["!ref"]) {
-                    ws = matrixToSheet([headersPerFoglio(nomeFoglio)]);
-                    wb.Sheets[nomeFoglio] = ws;
+                let nostre = [];
+                for (let i = 0; i < records.length; i++) {
+                    if (records[i] && records[i].numero !== "" && recordMatchSessione(records[i], identita)) {
+                        nostre.push({ rec: records[i], i: i });
+                    }
                 }
-
-                let nostre = trovaRigheSessione(ws, nomeFoglio, identita);
                 let candidati = nostre;
                 if (tentativo > 1 && ultimoNumeroScritto != null) {
-                    candidati = nostre.filter(function(r) { return cellaNumero(ws, r) === ultimoNumeroScritto; });
+                    candidati = nostre.filter(function(x) { return Number(x.rec.numero) === Number(ultimoNumeroScritto); });
                 }
                 if (tentativo > 1 && candidati.length === 1) {
-                    let numGia = cellaNumero(ws, candidati[0]);
-                    let infoGia = mappaProgressivi(ws);
-                    if (numGia != null && (infoGia.conteggio[numGia] || 0) === 1) {
-                        workbookCache = wb;
+                    let numGia = Number(candidati[0].rec.numero);
+                    let infoGia = mappaProgressiviRecords(records);
+                    if (!isNaN(numGia) && (infoGia.conteggio[numGia] || 0) === 1) {
+                        databaseCache = db;
                         return {
                             successo: true,
                             status: "success",
@@ -1797,18 +2110,19 @@
                     }
                 }
 
-                let maxNumero = maxProgressivoFoglio(ws);
+                let maxNumero = maxProgressivoRecords(records);
                 let nuovoNumero = maxNumero + 1;
                 let numeroPrecedente = null;
                 if (tentativo > 1 && candidati.length === 1) {
-                    numeroPrecedente = cellaNumero(ws, candidati[0]);
-                    imponiRigaTesto(ws, candidati[0], buildRowArray(nomeFoglio, payload, nuovoNumero, z.data, z.ora));
+                    numeroPrecedente = Number(candidati[0].rec.numero);
+                    records[candidati[0].i] = recordDaPayload(nomeFoglio, payload, nuovoNumero, z.data, z.ora);
                 } else {
-                    aggiungiRigaInCoda(ws, buildRowArray(nomeFoglio, payload, nuovoNumero, z.data, z.ora));
+                    records.push(recordDaPayload(nomeFoglio, payload, nuovoNumero, z.data, z.ora));
                 }
                 ultimoNumeroScritto = nuovoNumero;
-                if (rigaTarget !== -1 && wsTarget) {
-                    aggiornaCrossRefAllaRiga(wsTarget, rigaTarget, nuovoNumero, payload.status, numeroPrecedente);
+                if (numTarget != null && foglioTargetNome) {
+                    let idxTarget = trovaIndiceRecord(db.sheets[foglioTargetNome], numTarget);
+                    if (idxTarget !== -1) aggiornaCrossRefRecord(db.sheets[foglioTargetNome][idxTarget], nuovoNumero, payload.status, numeroPrecedente);
                 }
                 pushBackupEmergenzaJSON({
                     azione: "nuovo",
@@ -1819,18 +2133,18 @@
                     payload: payload
                 });
 
-                let wr = await scriviWorkbookSuFile(wb);
+                let wr = await scriviDatabaseSuFile(db);
                 if (!wr || !wr.ok) {
                     return {
                         successo: false,
-                        messaggio: "Scrittura Excel non riuscita" + (wr && wr.errore ? ": " + wr.errore : ".") + " I dati restano nella copia di emergenza."
+                        messaggio: "Scrittura database non riuscita" + (wr && wr.errore ? ": " + wr.errore : ".") + " I dati restano nella copia di emergenza."
                     };
                 }
 
-                let wbVer = await rileggiWorkbookDaFile();
-                let esito = verificaScritturaNuovo(wbVer.Sheets[nomeFoglio], nomeFoglio, nuovoNumero, identita);
+                let dbVer = await rileggiDatabaseDaFile();
+                let esito = verificaRecordNuovo(dbVer.sheets[nomeFoglio], nuovoNumero, identita);
                 if (esito.ok || esito.rigaIntegra) {
-                    workbookCache = wbVer;
+                    databaseCache = dbVer;
                     return {
                         successo: true,
                         status: "success",
@@ -1850,35 +2164,29 @@
 
     async function eseguiOperazioneDB(payload) {
         try {
-            ensureXLSX();
             if (!fileHandleDB) {
-                return { successo: false, messaggio: "Database Excel non connesso. Effettua il login e collega il file." };
+                return { successo: false, messaggio: "Database JSON non connesso. Effettua il login e collega il file." };
             }
             let azione = payload.azione;
             let nomeFoglio = payload.nomeFoglio;
             if (azione === "nuovo") {
                 return await salvaNuovoVerificato(payload, nomeFoglio);
             }
-            let wb = await rileggiWorkbookDaFile();
-            assicuratiFogli(wb);
-
-            if (azione === "nuovo" || azione === "modifica" || azione === "cerca" || azione === "report") {
-                if (!wb.SheetNames.includes(nomeFoglio) && nomeFoglio !== "_Config") {
-                    return { successo: false, messaggio: "Errore: il foglio '" + nomeFoglio + "' non esiste nel file Excel!" };
-                }
+            if (FOGLI_DB.indexOf(nomeFoglio) === -1) {
+                return { successo: false, messaggio: "Errore: il foglio '" + nomeFoglio + "' non esiste nel database!" };
             }
+            let db = await rileggiDatabaseDaFile();
+            let records = db.sheets[nomeFoglio] || [];
 
             if (azione === "cerca") {
-                let nCol = numColonneFoglio(nomeFoglio);
-                let matrix = sheetToMatrix(wb.Sheets[nomeFoglio], nCol);
                 let risultati = [];
                 function controllaTesto(valoreCella, testoCercato) {
                     if (!testoCercato) return true;
                     return String(valoreCella).toLowerCase().includes(String(testoCercato).toLowerCase());
                 }
-                for (let i = 1; i < matrix.length; i++) {
-                    let rec = rowToRecord(nomeFoglio, matrix[i]);
-                    if (!rec.numero && rec.numero !== 0) continue;
+                for (let i = 0; i < records.length; i++) {
+                    let rec = records[i];
+                    if (!rec || (rec.numero !== 0 && !rec.numero)) continue;
                     if (controllaTesto(rec.numero, payload.cercaNumero) &&
                         controllaTesto(rec.partnerDogana, payload.cercaPartnerDogana) &&
                         controllaTesto(rec.campoExtra, payload.cercaCampoExtra)) {
@@ -1893,10 +2201,9 @@
                 if (!is117ImportSheet(nomeFoglio)) {
                     return { successo: false, messaggio: "I report Pivot finanziari sono disponibili solo sui fogli 11.7x Import." };
                 }
-                let matrix = sheetToMatrix(wb.Sheets[nomeFoglio], 11);
                 let aggregato = {};
-                for (let i = 1; i < matrix.length; i++) {
-                    let rec = rowToRecord(nomeFoglio, matrix[i]);
+                for (let i = 0; i < records.length; i++) {
+                    let rec = records[i];
                     if (String(rec.status || "").trim().toLowerCase() !== "aperto") continue;
                     let partner = String(rec.partnerDogana || "Sconosciuto").trim();
                     let conto = String(rec.nrConto || "Nessun conto").trim();
@@ -1914,46 +2221,34 @@
                 return { successo: true, datiReport: arrayReport };
             }
 
-            let foglioTargetNome = foglioTargetCrossRef(nomeFoglio);
-            let rigaTarget = -1;
-            let wsTarget = null;
-            if (foglioTargetNome && payload.campoExtra && String(payload.campoExtra).trim() !== "") {
-                let numTargetCercato = Number(String(payload.campoExtra).trim());
-                if (!wb.SheetNames.includes(foglioTargetNome)) {
-                    return { successo: false, messaggio: "Attenzione: Il foglio " + foglioTargetNome + " non esiste." };
-                }
-                wsTarget = wb.Sheets[foglioTargetNome];
-                rigaTarget = trovaRigaSuFoglio(wsTarget, numTargetCercato);
-                if (rigaTarget === -1) {
-                    return {
-                        successo: false,
-                        messaggio: "ERRORE DI REGISTRAZIONE! Il riferimento " + numTargetCercato + " non esiste nel foglio " + foglioTargetNome + ". Registrazione annullata."
-                    };
-                }
-            }
-
-            let ws = wb.Sheets[nomeFoglio];
-            if (!ws || !ws["!ref"]) {
-                ws = matrixToSheet([headersPerFoglio(nomeFoglio)]);
-                wb.Sheets[nomeFoglio] = ws;
-            }
-
             if (azione === "modifica") {
                 let numeroDaModificare = Number(payload.numeroDaModificare);
-                let riga = trovaRigaSuFoglio(ws, numeroDaModificare);
-                if (riga === -1) {
+                let idx = trovaIndiceRecord(records, numeroDaModificare);
+                if (idx === -1) {
                     return { successo: false, messaggio: "Errore: record originale non trovato." };
                 }
+                let foglioTargetNome = foglioTargetCrossRef(nomeFoglio);
+                let numTarget = null;
+                if (foglioTargetNome && payload.campoExtra && String(payload.campoExtra).trim() !== "") {
+                    numTarget = Number(String(payload.campoExtra).trim());
+                    if (trovaIndiceRecord(db.sheets[foglioTargetNome] || [], numTarget) === -1) {
+                        return {
+                            successo: false,
+                            messaggio: "ERRORE DI REGISTRAZIONE! Il riferimento " + numTarget + " non esiste nel foglio " + foglioTargetNome + ". Registrazione annullata."
+                        };
+                    }
+                }
+                let esistente = records[idx];
                 let z = zurichNow();
-                let idxTempi = indiciDataOra(nomeFoglio);
-                let dataReg = leggiTestoCella(ws, riga, idxTempi.data) || z.data;
-                let oraReg = leggiTestoCella(ws, riga, idxTempi.ora) || z.ora;
-                imponiRigaTesto(ws, riga, buildRowArray(nomeFoglio, payload, numeroDaModificare, dataReg, oraReg));
-                if (rigaTarget !== -1 && wsTarget) aggiornaCrossRefAllaRiga(wsTarget, rigaTarget, numeroDaModificare, payload.status);
+                records[idx] = recordDaPayload(nomeFoglio, payload, numeroDaModificare, esistente.dataReg || z.data, esistente.oraReg || z.ora);
+                if (numTarget != null) {
+                    let idxTarget = trovaIndiceRecord(db.sheets[foglioTargetNome], numTarget);
+                    if (idxTarget !== -1) aggiornaCrossRefRecord(db.sheets[foglioTargetNome][idxTarget], numeroDaModificare, payload.status, null);
+                }
                 pushBackupEmergenzaJSON({ azione: "modifica", nomeFoglio: nomeFoglio, numero: numeroDaModificare, payload: payload });
-                let wr = await conUiSalvataggio(function() { return scriviWorkbookSuFile(wb); });
+                let wr = await conUiSalvataggio(function() { return scriviDatabaseSuFile(db); });
                 if (!wr || !wr.ok) {
-                    return { successo: false, messaggio: "Scrittura Excel non riuscita" + (wr && wr.errore ? ": " + wr.errore : ".") };
+                    return { successo: false, messaggio: "Scrittura database non riuscita" + (wr && wr.errore ? ": " + wr.errore : ".") };
                 }
                 return {
                     successo: true,
@@ -1966,7 +2261,7 @@
 
             return { successo: false, messaggio: "Azione non riconosciuta: " + azione };
         } catch (errore) {
-            return { successo: false, messaggio: "Errore database Excel: " + (errore && errore.message ? errore.message : errore) };
+            return { successo: false, messaggio: "Errore database: " + (errore && errore.message ? errore.message : errore) };
         }
     }
 
@@ -1974,11 +2269,11 @@
         fileHandleDB = handle;
         await salvaHandleIDB();
         if (creaSeVuoto) {
-            workbookCache = creaWorkbookVuoto();
-            await conUiSalvataggio(function() { return scriviWorkbookSuFile(workbookCache); });
+            databaseCache = creaDatabaseVuoto();
+            await conUiSalvataggio(function() { return scriviDatabaseSuFile(databaseCache, { includiConfig: true }); });
         } else {
-            await rileggiWorkbookDaFile();
-            if (workbookCache) leggiConfigDaWorkbook(workbookCache);
+            await rileggiDatabaseDaFile();
+            if (databaseCache) applicaConfigDatabase(databaseCache);
         }
         dbConnesso = true;
         aggiornaBadgeDB();
@@ -2002,11 +2297,10 @@
             applicaNomeOperatore(nome);
             if (btn) { btn.disabled = true; btn.innerText = "Connessione…"; }
             if (msg) { msg.style.color = "#334155"; msg.innerText = "Connessione al database…"; }
-            ensureXLSX();
             fileHandleDB = handleMemorizzato;
             await salvaHandleIDB();
-            await rileggiWorkbookDaFile();
-            leggiConfigDaWorkbook(workbookCache);
+            await rileggiDatabaseDaFile();
+            applicaConfigDatabase(databaseCache);
             dbConnesso = true;
             aggiornaBadgeDB();
             chiudiModaleLogin();
@@ -2028,7 +2322,7 @@
         }
         const handles = await window.showOpenFilePicker({
             multiple: false,
-            types: [{ description: "Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }],
+            types: [{ description: "Database JSON", accept: { "application/json": [".json"] } }],
             excludeAcceptAllOption: false
         }).catch(function(e) {
             if (!(e && e.name === "AbortError")) {
@@ -2043,7 +2337,6 @@
         let percorso = ((document.getElementById("login-admin-percorso") || {}).value || "").trim() || DEFAULT_PERCORSO;
         let nomeFile = handle.name || DEFAULT_NOME_FILE;
         try {
-            ensureXLSX();
             if (msg) { msg.style.color = "#334155"; msg.innerText = "Collegamento del database…"; }
             applicaNomeOperatore(nomeOperatoreLogin());
             localStorage.setItem(LS_PERCORSO, percorso);
@@ -2072,7 +2365,7 @@
 
     function postLoginInit() {
         caricaConfigLocale();
-        if (workbookCache) leggiConfigDaWorkbook(workbookCache);
+        if (databaseCache) applicaConfigDatabase(databaseCache);
         inizializzaDropdownPartners();
         let u = localStorage.getItem("utenteDoganaMulti") || "";
         let campoUtente = document.getElementById("n_utente");
@@ -2093,7 +2386,7 @@
             } else {
                 const handles = await window.showOpenFilePicker({
                     multiple: false,
-                    types: [{ description: "Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }],
+                    types: [{ description: "Database JSON", accept: { "application/json": [".json"] } }],
                     excludeAcceptAllOption: false
                 }).catch(function(e) {
                     if (!(e && e.name === "AbortError")) {
@@ -2104,21 +2397,22 @@
                 if (!handles || !handles[0]) return;
                 handle = handles[0];
             }
-            if (!pendingWriteBuffer && !ultimoBufferXlsx) {
-                alert("Nessun buffer di emergenza da riscrivere.");
+            if (!pendingWriteText) {
+                alert("Nessuna copia JSON di emergenza da riscrivere.");
                 return;
             }
             fileHandleDB = handle;
             handleMemorizzato = handle;
             await salvaHandleIDB();
-            let buf = pendingWriteBuffer || ultimoBufferXlsx;
+            let text = pendingWriteText;
             await conUiSalvataggio(async function() {
                 let writable = null;
                 try {
                     writable = await fileHandleDB.createWritable();
-                    await writable.write(buf);
+                    await writable.write(text);
                     await writable.close();
                     ultimoSalvataggioOk = true;
+                    pendingWriteText = null;
                     nascondiBarraEmergenza();
                     dbConnesso = true;
                 } catch (e) {
@@ -2128,11 +2422,12 @@
                             else await writable.close();
                         } catch (e2) { /* rilascio del lock */ }
                     }
-                    try { await backupBufferIDB(buf); } catch (e2) { /* ignore */ }
+                    pendingWriteText = text;
+                    try { await backupBufferIDB(text); } catch (e2) { /* ignore */ }
                     throw e;
                 }
             });
-            alert("Scrittura su Excel riuscita.");
+            alert("Scrittura sul database JSON riuscita.");
         } catch (e) {
             mostraBarraEmergenza("Riprova fallita: " + (e && e.message ? e.message : e));
         } finally {
@@ -2145,18 +2440,87 @@
     }
 
     function scaricaCopiaEmergenza() {
-        let buf = pendingWriteBuffer || ultimoBufferXlsx;
-        if (!buf) {
-            alert("Nessuna copia .xlsx in memoria.");
+        if (!pendingWriteText) {
+            alert("Nessuna copia JSON in memoria.");
             return;
         }
-        let blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        let blob = new Blob([pendingWriteText], { type: "application/json" });
         let a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = "EMERGENZA_" + getNomeFileDB();
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+    }
+
+    async function esportaExcel() {
+        let btn = document.getElementById("btn-esporta-excel");
+        let testo = btn ? btn.innerText : "📤 Esporta Excel";
+        try {
+            if (!fileHandleDB) throw new Error("Collega prima il database JSON.");
+            if (btn) { btn.disabled = true; btn.innerText = "Esportazione..."; }
+            ensureXLSX();
+            let db = await rileggiDatabaseDaFile();
+            let wb = databaseToWorkbook(db);
+            compattaFogliWorkbook(wb);
+            let out = XLSX.write(wb, { bookType: "xlsx", type: "array", compression: true });
+            let blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+            let a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = DEFAULT_NOME_XLSX;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function() { URL.revokeObjectURL(a.href); }, 1500);
+        } catch (e) {
+            alert("Esportazione Excel non riuscita: " + ((e && e.message) ? e.message : e));
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerText = testo; }
+        }
+    }
+
+    async function importaExcelNelDatabase() {
+        if (!fileHandleDB) {
+            alert("Collega prima il file JSON del database.");
+            return;
+        }
+        if (!confirm("Importare tutti i fogli dal file Excel nel database JSON?\nI sei fogli del JSON verranno sostituiti.")) return;
+        let msg = document.getElementById("msg-admin-path");
+        try {
+            ensureXLSX();
+            const handles = await window.showOpenFilePicker({
+                multiple: false,
+                types: [{ description: "Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }],
+                excludeAcceptAllOption: false
+            });
+            if (msg) { msg.style.color = "#334155"; msg.innerText = "Importazione in corso…"; }
+            let file = await handles[0].getFile();
+            let buf = await file.arrayBuffer();
+            let wb = XLSX.read(buf, { type: "array", cellDates: false, cellNF: false, cellStyles: false, cellFormula: false, cellHTML: false });
+            compattaFogliWorkbook(wb);
+            let db = await rileggiDatabaseDaFile();
+            FOGLI_DB.forEach(function(nome) {
+                let records = [];
+                if (wb.Sheets[nome]) {
+                    let matrix = sheetToMatrix(wb.Sheets[nome], numColonneFoglio(nome));
+                    for (let i = 1; i < matrix.length; i++) {
+                        let rec = normalizzaRecord(rowToRecord(nome, matrix[i]));
+                        if (rec.numero === "" || rec.numero == null) continue;
+                        records.push(rec);
+                    }
+                }
+                db.sheets[nome] = records;
+            });
+            if (wb.SheetNames.includes("_Config")) leggiConfigDaWorkbook(wb);
+            let wr = await conUiSalvataggio(function() { return scriviDatabaseSuFile(db, { includiConfig: true }); });
+            if (!wr || !wr.ok) throw new Error((wr && wr.errore) ? wr.errore : "Scrittura JSON non riuscita");
+            applicaConfigDatabase(databaseCache || db);
+            inizializzaDropdownPartners();
+            if (msg) { msg.style.color = "green"; msg.innerText = "Importazione completata da " + file.name + "."; }
+        } catch (e) {
+            if (e && e.name === "AbortError") return;
+            if (msg) { msg.style.color = "red"; msg.innerText = (e && e.message) ? e.message : String(e); }
+        }
     }
 
     // LISTA PARTNER PULITA E SENZA DUPLICATI (default codice)
@@ -3535,8 +3899,8 @@
         let excelOk = !fileHandleDB;
         try {
             if (fileHandleDB) {
-                let wb = await rileggiWorkbookDaFile();
-                let wr = await conUiSalvataggio(function() { return scriviWorkbookSuFile(wb, { includiConfig: true }); });
+                let db = await rileggiDatabaseDaFile();
+                let wr = await conUiSalvataggio(function() { return scriviDatabaseSuFile(db, { includiConfig: true }); });
                 excelOk = !!(wr && wr.ok);
             }
         } catch (e) {
@@ -3555,8 +3919,8 @@
         let msg = document.getElementById('msg-admin');
         msg.style.color = excelOk ? "green" : "red";
         msg.innerText = excelOk
-            ? ("Configurazione salvata. Dropdown aggiornati" + (fileHandleDB ? " (+ _Config Excel)." : "."))
-            : "Configurazione salvata in locale. Scrittura Excel non riuscita.";
+            ? ("Configurazione salvata. Dropdown aggiornati" + (fileHandleDB ? " (+ config JSON)." : "."))
+            : "Configurazione salvata in locale. Scrittura JSON non riuscita.";
     }
 
     async function salvaPercorsoAdmin() {
@@ -3570,19 +3934,19 @@
         try {
             let excelOk = !fileHandleDB;
             if (fileHandleDB) {
-                let wb = await rileggiWorkbookDaFile();
-                let wr = await conUiSalvataggio(function() { return scriviWorkbookSuFile(wb, { includiConfig: true }); });
+                let db = await rileggiDatabaseDaFile();
+                let wr = await conUiSalvataggio(function() { return scriviDatabaseSuFile(db, { includiConfig: true }); });
                 excelOk = !!(wr && wr.ok);
             }
             if (msg) {
                 msg.style.color = excelOk ? "green" : "red";
                 msg.innerText = excelOk
-                    ? ("Percorso salvato in localStorage" + (fileHandleDB ? " e foglio _Config." : "."))
-                    : "Percorso in locale. Scrittura Excel non riuscita.";
+                    ? ("Percorso salvato in localStorage" + (fileHandleDB ? " e nel database JSON." : "."))
+                    : "Percorso in locale. Scrittura JSON non riuscita.";
             }
             aggiornaBadgeDB();
         } catch (e) {
-            if (msg) { msg.style.color = "red"; msg.innerText = "Percorso in LS, Excel: " + (e.message || e); }
+            if (msg) { msg.style.color = "red"; msg.innerText = "Percorso in locale. Scrittura JSON: " + (e.message || e); }
         } finally {
             if (salvataggioInCorso > 0) {
                 salvataggioInCorso = 0;
@@ -3607,7 +3971,7 @@
     async function ricollegaFileDatabase() {
         const handles = await window.showOpenFilePicker({
             multiple: false,
-            types: [{ description: "Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }],
+            types: [{ description: "Database JSON", accept: { "application/json": [".json"] } }],
             excludeAcceptAllOption: false
         }).catch(function(e) {
             if (!(e && e.name === "AbortError")) {
@@ -3642,7 +4006,7 @@
     async function inizializzaNuovoExcel() {
         const handle = await window.showSaveFilePicker({
             suggestedName: getNomeFileDB(),
-            types: [{ description: "Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }]
+            types: [{ description: "Database JSON", accept: { "application/json": [".json"] } }]
         }).catch(function(e) {
             if (!(e && e.name === "AbortError")) {
                 let msg = document.getElementById('msg-admin-path');
@@ -3659,7 +4023,7 @@
             if (nomeEl && nomeEl.value.trim()) localStorage.setItem(LS_NOME_FILE, nomeEl.value.trim());
             else if (handle.name) localStorage.setItem(LS_NOME_FILE, handle.name);
             await connettiDaHandleFile(handle, true);
-            if (msg) { msg.style.color = "green"; msg.innerText = "Nuovo Excel inizializzato: " + handle.name; }
+            if (msg) { msg.style.color = "green"; msg.innerText = "Database JSON inizializzato: " + handle.name; }
             aggiornaBadgeDB();
         } catch (e) {
             if (msg) { msg.style.color = "red"; msg.innerText = e.message || String(e); }
