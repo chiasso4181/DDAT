@@ -390,6 +390,25 @@
             margin-bottom: 12px;
             line-height: 1.4;
         }
+        .login-istruzioni {
+            background: #ecfdf5;
+            border: 1px solid #6ee7b7;
+            color: #065f46;
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-weight: 700;
+            margin: 0 0 12px;
+            line-height: 1.45;
+        }
+        .btn-login-collega {
+            background: #059669;
+            color: #fff;
+            font-weight: 800;
+            font-size: 1.05rem;
+            padding: 16px 14px;
+            box-shadow: 0 2px 8px rgba(5, 150, 105, 0.28);
+        }
+        .btn-login-collega:hover { background: #047857; }
         .btn-modale-admin {
             background: #1e293b;
             color: #fff;
@@ -774,39 +793,37 @@
             <p class="modale-testo">Verifica del database su questa postazione…</p>
         </div>
 
-        <div id="login-caso-connesso" style="display:none;">
+        <div id="login-schermata-utenti" style="display:none;">
             <div class="grid-item" style="margin-bottom:14px;">
-                <label for="login-operatore">Nome Operatore</label>
-                <input type="text" id="login-operatore" placeholder="Es. Mario Rossi" autocomplete="username">
+                <label for="login-operatore">Utente / N° Pers.</label>
+                <input type="text" id="login-operatore" placeholder="Es. 80732494 o nome" autocomplete="username">
             </div>
-            <div class="modale-azioni">
-                <button type="button" class="btn-modale btn-modale-chiasso" id="btn-login-connetti" onclick="entraEConnettiDatabase()">🚀 Entra e Connetti Database</button>
-            </div>
-            <button type="button" class="btn-login-admin-link" onclick="mostraPannelloAdminLogin()">⚙️ Admin: Cambia percorso DB</button>
-        </div>
 
-        <div id="login-caso-primo" style="display:none;">
-            <div class="login-avviso">⚠️ Database non ancora collegato su questa postazione</div>
-            <p class="modale-testo">L'accesso diretto è disabilitato finché un amministratore non collega il file JSON del database.</p>
-            <div class="modale-azioni">
-                <button type="button" class="btn-modale btn-modale-admin" id="btn-login-configura-admin" onclick="mostraPannelloAdminLogin()">🔒 Configura Percorso DB (Admin)</button>
+            <div id="login-caso-primo" style="display:none;">
+                <p class="login-istruzioni">1️⃣ Clicca il pulsante verde qui sotto (il percorso del database verrà copiato in automatico).<br>2️⃣ Nella finestra di Windows che si apre, premi subito <strong>CTRL + V</strong> e poi <strong>INVIO</strong>.</p>
+                <div class="modale-azioni">
+                    <button type="button" class="btn-modale btn-login-collega" id="btn-login-collega" onclick="collegaDatabaseJson()">📂 Collega Database (Percorso già copiato: fai CTRL+V)</button>
+                </div>
             </div>
+
+            <div id="login-caso-connesso" style="display:none;">
+                <div class="modale-azioni">
+                    <button type="button" class="btn-modale btn-modale-chiasso" id="btn-login-connetti" onclick="entraNelGestionale()">🚀 Entra nel Gestionale</button>
+                    <button type="button" class="btn-login-admin-link" onclick="collegaDatabaseJson()">Cambia file database (.json)</button>
+                </div>
+            </div>
+
+            <button type="button" class="btn-login-admin-link" onclick="mostraPannelloAdminLogin()">⚙️ Amministrazione (Crea DB da Excel / Nuovo DB vuoto)</button>
         </div>
 
         <div id="login-pannello-admin" style="display:none;">
-            <p class="modale-testo">Verifica la password. Se il JSON esiste già, selezionalo. Al primo avvio crealo partendo dall'Excel.</p>
+            <p class="modale-testo">La password serve solo per creare il database. I colleghi collegano il JSON senza password.</p>
             <div class="grid-item" style="margin-bottom:10px;">
                 <label for="login-admin-password">Password Admin</label>
                 <input type="password" id="login-admin-password" autocomplete="current-password" placeholder="Password Admin">
             </div>
-            <div class="grid-item" style="margin-bottom:10px;">
-                <label for="login-admin-percorso">Percorso database</label>
-                <input type="text" id="login-admin-percorso" value="\\Vf00105a.adb.intra.admin.ch\ezv_os$\os\0\3\2\6\5\66632\40 Tabelle_base\Numerazioni\Formulari_Dogana_Chiasso_DB.json" spellcheck="false">
-            </div>
             <div class="modale-azioni">
-                <button type="button" class="btn-modale btn-modale-secondario" onclick="copiaPercorsoLoginAdmin()">📋 Copia percorso</button>
-                <button type="button" class="btn-modale btn-modale-chiasso" id="btn-login-seleziona-excel" onclick="sbloccaESelezionaFileExcel()">📂 Sblocca e Seleziona File JSON</button>
-                <button type="button" class="btn-modale btn-login-da-excel" id="btn-login-da-excel" onclick="primoAvvioCreaJsonDaExcel()">📗 1° Avvio: Crea file JSON partendo dal tuo Excel (.xlsx)</button>
+                <button type="button" class="btn-modale btn-login-da-excel" id="btn-login-da-excel" onclick="primoAvvioCreaJsonDaExcel()">📗 Crea file JSON partendo dal tuo Excel (.xlsx)</button>
                 <button type="button" class="btn-modale btn-login-passo2" id="btn-login-passo2" onclick="salvaJsonConvertitoPasso2()">💾 Passo 2: Salva ora Formulari_Dogana_Chiasso_DB.json nella cartella Numerazioni</button>
                 <button type="button" class="btn-login-admin-link" id="btn-login-json-vuoto" onclick="creaJsonVuotoDaZero()">➕ Crea JSON vuoto da zero</button>
                 <button type="button" class="btn-login-admin-link" onclick="nascondiPannelloAdminLogin()">← Torna all'accesso</button>
@@ -1327,11 +1344,13 @@
 
     function aggiornaVistaModaleLogin() {
         let attesa = document.getElementById("login-caso-attesa");
+        let schermata = document.getElementById("login-schermata-utenti");
         let caso1 = document.getElementById("login-caso-connesso");
         let caso2 = document.getElementById("login-caso-primo");
         let admin = document.getElementById("login-pannello-admin");
         if (!handleMemorizzatoPronto) {
             if (attesa) attesa.style.display = "block";
+            if (schermata) schermata.style.display = "none";
             if (caso1) caso1.style.display = "none";
             if (caso2) caso2.style.display = "none";
             if (admin) admin.style.display = "none";
@@ -1339,8 +1358,7 @@
         }
         if (loginAdminAperto) {
             if (attesa) attesa.style.display = "none";
-            if (caso1) caso1.style.display = "none";
-            if (caso2) caso2.style.display = "none";
+            if (schermata) schermata.style.display = "none";
             if (admin) admin.style.display = "block";
             let passo2 = document.getElementById("btn-login-passo2");
             if (passo2) passo2.style.display = dbConvertitoTemp ? "block" : "none";
@@ -1348,17 +1366,19 @@
         }
         if (attesa) attesa.style.display = "none";
         if (admin) admin.style.display = "none";
+        if (schermata) schermata.style.display = "block";
+        let operatore = document.getElementById("login-operatore");
+        if (operatore && !operatore.value) {
+            let salvato = localStorage.getItem("utenteDoganaMulti");
+            if (salvato) operatore.value = salvato;
+        }
         let collegato = !!handleMemorizzato;
         if (caso1) caso1.style.display = collegato ? "block" : "none";
         if (caso2) caso2.style.display = collegato ? "none" : "block";
-        let btn = document.getElementById("btn-login-connetti");
-        if (btn) btn.disabled = !collegato;
     }
 
     function mostraPannelloAdminLogin() {
         loginAdminAperto = true;
-        let percorso = document.getElementById("login-admin-percorso");
-        if (percorso) percorso.value = getPercorsoDefault() || DEFAULT_PERCORSO;
         let msg = document.getElementById("login-msg");
         if (msg) msg.innerText = "";
         aggiornaVistaModaleLogin();
@@ -1373,18 +1393,20 @@
         aggiornaVistaModaleLogin();
     }
 
-    function copiaPercorsoLoginAdmin() {
-        let path = ((document.getElementById("login-admin-percorso") || {}).value || DEFAULT_PERCORSO).trim();
-        let msg = document.getElementById("login-msg");
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(path).then(function() {
-                if (msg) { msg.style.color = "green"; msg.innerText = "Percorso copiato."; }
-            }).catch(function() {
-                if (msg) { msg.style.color = "red"; msg.innerText = "Copia non riuscita. Seleziona il percorso e copialo manualmente."; }
-            });
-        } else if (msg) {
-            msg.style.color = "red";
-            msg.innerText = "Copia non disponibile in questo browser.";
+    function copiaPercorsoNegliAppunti(testo) {
+        let ta = document.createElement("textarea");
+        ta.value = testo;
+        ta.setAttribute("readonly", "readonly");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        ta.style.top = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try { document.execCommand("copy"); } catch (e) { /* il picker parte comunque */ }
+        document.body.removeChild(ta);
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+            try { navigator.clipboard.writeText(testo).catch(function() {}); } catch (e) { /* copia sincrona già tentata */ }
         }
     }
 
@@ -2579,18 +2601,20 @@
         return true;
     }
 
-    async function entraEConnettiDatabase() {
-        const fileHandle = handleMemorizzato || fileHandleDB;
-        let msg = document.getElementById("login-msg");
-        let btn = document.getElementById("btn-login-connetti");
+    async function entraNelGestionale() {
+        let msg;
+        let btn;
         try {
-            if ((await fileHandle.queryPermission({ mode: 'readwrite' })) !== 'granted') {
-                const p = await fileHandle.requestPermission({ mode: 'readwrite' });
-                if (p !== 'granted') throw new Error('Permesso di scrittura negato.');
+            let permesso = await handleMemorizzato.requestPermission({ mode: "readwrite" });
+            msg = document.getElementById("login-msg");
+            btn = document.getElementById("btn-login-connetti");
+            if (permesso === "denied") {
+                if (msg) { msg.style.color = "red"; msg.innerText = "Permesso di scrittura negato sul database JSON."; }
+                return;
             }
             let nome = nomeOperatoreLogin();
             if (!nome) {
-                if (msg) { msg.style.color = "red"; msg.innerText = "Inserisci il Nome Operatore."; }
+                if (msg) { msg.style.color = "red"; msg.innerText = "Inserisci Utente / N° Pers."; }
                 return;
             }
             applicaNomeOperatore(nome);
@@ -2605,24 +2629,24 @@
             chiudiModaleLogin();
             postLoginInit();
         } catch (e) {
+            if (!msg) msg = document.getElementById("login-msg");
             if (msg) { msg.style.color = "red"; msg.innerText = (e && e.message) ? e.message : String(e); }
             aggiornaBadgeDB();
         } finally {
-            if (btn) { btn.disabled = false; btn.innerText = "🚀 Entra e Connetti Database"; }
+            if (btn) { btn.disabled = false; btn.innerText = "🚀 Entra nel Gestionale"; }
         }
     }
 
-    async function sbloccaESelezionaFileExcel() {
-        const pwd = ((document.getElementById("login-admin-password") || {}).value || "").trim();
-        if (pwd !== "Chiasso4181") {
+    async function collegaDatabaseJson() {
+        let nome = nomeOperatoreLogin();
+        if (!nome) {
             const msg = document.getElementById("login-msg");
-            if (msg) { msg.style.color = "red"; msg.innerText = "Password Admin non corretta."; }
+            if (msg) { msg.style.color = "red"; msg.innerText = "Inserisci Utente / N° Pers."; }
             return;
         }
+        copiaPercorsoNegliAppunti(DEFAULT_PERCORSO);
         const handles = await window.showOpenFilePicker({
-            multiple: false,
-            types: [{ description: "Database JSON", accept: { "application/json": [".json"] } }],
-            excludeAcceptAllOption: false
+            types: [{ description: "Database JSON", accept: { "application/json": [".json"] } }]
         }).catch(function(e) {
             if (!(e && e.name === "AbortError")) {
                 const msg = document.getElementById("login-msg");
@@ -2633,17 +2657,19 @@
         if (!handles || !handles[0]) return;
         let handle = handles[0];
         let msg = document.getElementById("login-msg");
-        let percorso = ((document.getElementById("login-admin-percorso") || {}).value || "").trim() || DEFAULT_PERCORSO;
-        let nomeFile = handle.name || DEFAULT_NOME_FILE;
         try {
             if (msg) { msg.style.color = "#334155"; msg.innerText = "Collegamento del database…"; }
-            applicaNomeOperatore(nomeOperatoreLogin());
-            localStorage.setItem(LS_PERCORSO, percorso);
-            localStorage.setItem(LS_NOME_FILE, nomeFile);
-            await connettiDaHandleFile(handle, false);
+            applicaNomeOperatore(nome);
+            localStorage.setItem(LS_PERCORSO, DEFAULT_PERCORSO);
+            localStorage.setItem(LS_NOME_FILE, handle.name || DEFAULT_NOME_FILE);
+            fileHandleDB = handle;
             handleMemorizzato = handle;
-            localStorage.setItem(LS_PERCORSO, percorso);
-            localStorage.setItem(LS_NOME_FILE, nomeFile);
+            await salvaHandleIDB();
+            try { await handle.requestPermission({ mode: "readwrite" }); } catch (e) { /* il consenso si richiede al primo salvataggio */ }
+            await rileggiDatabaseDaFile();
+            applicaConfigDatabase(databaseCache);
+            dbConnesso = true;
+            aggiornaBadgeDB();
             chiudiModaleLogin();
             postLoginInit();
         } catch (e) {
@@ -2699,8 +2725,7 @@
         try {
             ensureXLSX();
             if (msg) { msg.style.color = "#334155"; msg.innerText = "Lettura Excel in corso…"; }
-            let percorsoCampo = ((document.getElementById("login-admin-percorso") || {}).value || "").trim();
-            if (percorsoCampo) localStorage.setItem(LS_PERCORSO, percorsoCampo);
+            localStorage.setItem(LS_PERCORSO, getPercorsoDefault() || DEFAULT_PERCORSO);
             let file = await handles[0].getFile();
             let buf = await file.arrayBuffer();
             let wb = XLSX.read(buf, { type: "array", cellDates: false, cellNF: false, cellStyles: false, cellFormula: false, cellHTML: false });
@@ -2729,7 +2754,7 @@
             await writable.write(text);
             await writable.close();
             writable = null;
-            let percorso = ((document.getElementById("login-admin-percorso") || {}).value || "").trim() || DEFAULT_PERCORSO;
+            let percorso = getPercorsoDefault() || DEFAULT_PERCORSO;
             localStorage.setItem(LS_PERCORSO, percorso);
             localStorage.setItem(LS_NOME_FILE, handle.name || DEFAULT_NOME_FILE);
             applicaNomeOperatore(nomeOperatoreLogin());
@@ -2796,8 +2821,7 @@
             return null;
         });
         if (!handle) return;
-        let percorsoCampo = ((document.getElementById("login-admin-percorso") || {}).value || "").trim();
-        if (percorsoCampo) localStorage.setItem(LS_PERCORSO, percorsoCampo);
+        localStorage.setItem(LS_PERCORSO, getPercorsoDefault() || DEFAULT_PERCORSO);
         let db = preparaDatabasePerScrittura(creaDatabaseVuoto(), { includiConfig: true });
         await scriviDatabaseEEntra(handle, db);
     }
