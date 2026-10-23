@@ -219,6 +219,35 @@
         #tabella-admin-partner th, #tabella-admin-partner td { border: 1px solid var(--border); padding: 8px; }
         #tabella-admin-partner th { background: var(--sidebar); color: #fff; }
         #tabella-admin-partner input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--input-border); border-radius: 6px; }
+        #tabella-admin-partner input.partner-modificato {
+            border-color: #ea580c;
+            background: #fff7ed;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22);
+        }
+        .btn-salva-partner {
+            background-color: #059669;
+            box-shadow: 0 2px 8px rgba(5, 150, 105, 0.28);
+            font-weight: 800;
+        }
+        .btn-salva-partner:hover { background-color: #047857; }
+        .btn-salva-partner.modifiche-non-salvate { animation: partner-salva-pulse 1s ease-in-out infinite; }
+        @keyframes partner-salva-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0); }
+            50% { box-shadow: 0 0 0 4px #fdba74; background-color: #10b981; }
+        }
+        .badge-partner-dirty {
+            display: none;
+            background: #ea580c;
+            color: #fff;
+            font-size: 0.78rem;
+            font-weight: 800;
+            border-radius: 999px;
+            padding: 4px 10px;
+        }
+        .badge-partner-dirty.visibile { display: inline-block; }
+        @media (prefers-reduced-motion: reduce) {
+            .btn-salva-partner.modifiche-non-salvate { animation: none; outline: 3px solid #fdba74; }
+        }
         .admin-status-grid { display: flex; gap: 20px; flex-wrap: wrap; }
         .admin-status-box { flex: 1; min-width: 220px; }
         .admin-status-box textarea { width: 100%; min-height: 90px; box-sizing: border-box; padding: 10px 12px; font-family: inherit; border: 1px solid var(--input-border); border-radius: 6px; }
@@ -757,7 +786,10 @@
             </div>
             <div class="admin-azioni">
                 <button type="button" class="btn-main" onclick="aggiungiRigaPartnerAdmin()">➕ Aggiungi Partner</button>
+                <button type="button" class="btn-main btn-salva-partner" onclick="salvaModifichePartner()">💾 Salva Modifiche Partner e Conti</button>
+                <span class="badge-partner-dirty">Modifiche non salvate</span>
             </div>
+            <div id="msg-admin-partner" class="messaggio-esito" style="margin-top:8px;"></div>
         </div>
 
         <div class="admin-sezione">
@@ -2100,7 +2132,23 @@
                     await attesaBackoffTentativo(tentativo);
                     let daScrivere = db;
                     if (opzioni && opzioni.includiConfig && !opzioni.sostituisciFogli) {
-                        daScrivere = await leggiDatabaseGrezzo();
+                        let partnerVoluti = JSON.parse(JSON.stringify(contiPartner));
+                        let status117Voluti = (statusExtra117 || []).slice();
+                        let status118Voluti = (statusExtra118 || []).slice();
+                        let percorsoVoluto = getPercorsoDefault();
+                        try {
+                            daScrivere = await leggiDatabaseGrezzo();
+                        } finally {
+                            contiPartner = partnerVoluti;
+                            statusExtra117 = status117Voluti;
+                            statusExtra118 = status118Voluti;
+                            try {
+                                localStorage.setItem(LS_CONTI_PARTNER, JSON.stringify(contiPartner));
+                                localStorage.setItem(LS_STATUS_117, JSON.stringify(statusExtra117));
+                                localStorage.setItem(LS_STATUS_118, JSON.stringify(statusExtra118));
+                                if (percorsoVoluto) localStorage.setItem(LS_PERCORSO, percorsoVoluto);
+                            } catch (eMem) { /* la scrittura usa comunque la mappa ripristinata */ }
+                        }
                     }
                     preparaDatabasePerScrittura(daScrivere, opzioni);
                     await scriviDatabaseAtomico(daScrivere);
@@ -3276,9 +3324,22 @@
         return html;
     }
 
+    function chiaviPartnerOrdinate(mappa) {
+        let src = mappa || contiPartner;
+        let chiavi = Object.keys(src).filter(function(k) { return k !== "Altro"; });
+        chiavi.sort(function(a, b) { return a.localeCompare(b, "it", { sensitivity: "base" }); });
+        if (Object.prototype.hasOwnProperty.call(src, "Altro")) chiavi.push("Altro");
+        return chiavi;
+    }
+
+    function ordinaMappaPartner(mappa) {
+        let out = {};
+        chiaviPartnerOrdinate(mappa).forEach(function(k) { out[k] = mappa[k]; });
+        return out;
+    }
+
     function buildPartnerSelectHTML(includeEmpty, emptyLabel) {
-        const chiavi = Object.keys(contiPartner).filter(k => k !== "Altro").sort();
-        if (contiPartner["Altro"] !== undefined) chiavi.push("Altro");
+        const chiavi = chiaviPartnerOrdinate(contiPartner);
         let html = includeEmpty ? `<option value="">${emptyLabel || "-- Seleziona --"}</option>` : '';
         chiavi.forEach(p => { html += `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`; });
         return html;
@@ -4164,7 +4225,7 @@
                 headerHtml += '<th data-col="' + col.key + '"><select data-filtro="' + col.key + '" onchange="aggiornaFiltroColonna(\'' + col.key + '\', this.value)">' + opts + '</select></th>';
             } else if (col.key === 'partnerDogana') {
                 let opts = '<option value="">Tutti</option>';
-                Object.keys(contiPartner).filter(k => k !== 'Altro').sort().concat(contiPartner['Altro'] !== undefined ? ['Altro'] : []).forEach(p => {
+                chiaviPartnerOrdinate(contiPartner).forEach(p => {
                     opts += '<option value="' + escapeHtml(p) + '"' + (val === p ? ' selected' : '') + '>' + escapeHtml(p) + '</option>';
                 });
                 headerHtml += '<th data-col="' + col.key + '"><select data-filtro="' + col.key + '" onchange="aggiornaFiltroColonna(\'' + col.key + '\', this.value)">' + opts + '</select></th>';
@@ -4387,45 +4448,222 @@
 
     function renderAdminPartner() {
         let tbody = document.getElementById('tbody-admin-partner');
-        let chiavi = Object.keys(contiPartner).filter(k => k !== "Altro").sort();
-        if (contiPartner["Altro"] !== undefined) chiavi.push("Altro");
+        if (!tbody) return;
+        let chiavi = chiaviPartnerOrdinate(contiPartner);
         tbody.innerHTML = '';
-        chiavi.forEach((nome, i) => {
+        chiavi.forEach(function(nome) {
+            let conto = contiPartner[nome] == null ? "" : String(contiPartner[nome]);
             let tr = document.createElement('tr');
             tr.innerHTML =
-                '<td><input type="text" class="admin-partner-nome" value="' + escapeHtml(nome) + '"></td>' +
-                '<td><input type="text" class="admin-partner-conto" value="' + escapeHtml(contiPartner[nome] || '') + '"></td>' +
+                '<td><input type="text" class="admin-partner-nome" value="' + escapeHtml(nome) + '" data-originale="' + escapeHtml(nome) + '"></td>' +
+                '<td><input type="text" class="admin-partner-conto" value="' + escapeHtml(conto) + '" data-originale="' + escapeHtml(conto) + '"></td>' +
                 '<td><button type="button" class="btn-riga" onclick="eliminaRigaPartnerAdmin(this)">🗑️</button></td>';
             tbody.appendChild(tr);
         });
+        aggiornaStatoModifichePartner();
     }
 
-    function aggiungiRigaPartnerAdmin() {
+    function appendRigaPartnerVuota() {
         let tbody = document.getElementById('tbody-admin-partner');
         let tr = document.createElement('tr');
         tr.innerHTML =
-            '<td><input type="text" class="admin-partner-nome" value="" placeholder="Nome partner"></td>' +
-            '<td><input type="text" class="admin-partner-conto" value="" placeholder="Nr. conto"></td>' +
+            '<td><input type="text" class="admin-partner-nome" value="" data-originale="" placeholder="Nome partner"></td>' +
+            '<td><input type="text" class="admin-partner-conto" value="" data-originale="" placeholder="Nr. conto"></td>' +
             '<td><button type="button" class="btn-riga" onclick="eliminaRigaPartnerAdmin(this)">🗑️</button></td>';
         tbody.appendChild(tr);
+        let nome = tr.querySelector('.admin-partner-nome');
+        if (nome) nome.focus();
+        aggiornaStatoModifichePartner();
     }
 
-    function eliminaRigaPartnerAdmin(btn) {
+    async function aggiungiRigaPartnerAdmin() {
+        if (partnerAdminSporco()) {
+            let ok = await salvaModifichePartner();
+            if (!ok) return;
+        }
+        appendRigaPartnerVuota();
+    }
+
+    async function eliminaRigaPartnerAdmin(btn) {
         let tr = btn.closest('tr');
-        if (tr) tr.remove();
+        if (!tr) return;
+        let nomeEl = tr.querySelector('.admin-partner-nome');
+        let nome = nomeEl ? nomeEl.value.trim() : "";
+        if (nome) {
+            let quanti = 0;
+            document.querySelectorAll('#tbody-admin-partner .admin-partner-nome').forEach(function(el) {
+                if (el.value.trim()) quanti++;
+            });
+            if (quanti <= 1) {
+                alert("Inserisci almeno un partner.");
+                return;
+            }
+        }
+        tr.remove();
+        if (nome) await salvaModifichePartner();
+        else aggiornaStatoModifichePartner();
+    }
+
+    function normalizzaContoPartnerAdmin(contoGrezzo, nome) {
+        let grezzo = String(contoGrezzo == null ? "" : contoGrezzo).trim();
+        let normalizzato = normalizzaNrConto(grezzo, nome);
+        if (normalizzato === grezzo) return normalizzato;
+        let sembraData = grezzo.indexOf("/") !== -1 || grezzo.indexOf(".") !== -1;
+        if (sembraData) return normalizzato;
+        if (Object.prototype.hasOwnProperty.call(contiPartner, nome) && normalizzato === contiPartner[nome] && grezzo !== String(contiPartner[nome])) {
+            return grezzo;
+        }
+        return normalizzato;
     }
 
     function leggiPartnerDaAdmin() {
         let obj = {};
-        document.querySelectorAll('#tbody-admin-partner tr').forEach(tr => {
-            let nome = (tr.querySelector('.admin-partner-nome') || {}).value;
-            let conto = (tr.querySelector('.admin-partner-conto') || {}).value;
-            if (nome && nome.trim()) {
-                obj[nome.trim()] = (conto || "").trim();
-            }
+        document.querySelectorAll('#tbody-admin-partner tr').forEach(function(tr) {
+            let nomeEl = tr.querySelector('.admin-partner-nome');
+            let contoEl = tr.querySelector('.admin-partner-conto');
+            let nome = nomeEl ? String(nomeEl.value || "").trim() : "";
+            if (!nome) return;
+            let contoGrezzo = contoEl ? String(contoEl.value || "").trim() : "";
+            obj[nome] = normalizzaContoPartnerAdmin(contoGrezzo, nome);
         });
-        return obj;
+        return ordinaMappaPartner(obj);
     }
+
+    function rinominePartnerDaTabella() {
+        let map = {};
+        document.querySelectorAll('#tbody-admin-partner tr').forEach(function(tr) {
+            let nomeEl = tr.querySelector('.admin-partner-nome');
+            if (!nomeEl) return;
+            let prima = String(nomeEl.dataset.originale || "").trim();
+            let dopo = nomeEl.value.trim();
+            if (prima && dopo && prima !== dopo) map[prima] = dopo;
+        });
+        return map;
+    }
+
+    function partnerAdminSporco() {
+        let sporco = false;
+        document.querySelectorAll('#tbody-admin-partner tr').forEach(function(tr) {
+            let nomeEl = tr.querySelector('.admin-partner-nome');
+            let contoEl = tr.querySelector('.admin-partner-conto');
+            if (!nomeEl || !contoEl) return;
+            let nomeCambio = nomeEl.value.trim() !== String(nomeEl.dataset.originale || "");
+            let contoCambio = contoEl.value.trim() !== String(contoEl.dataset.originale || "");
+            nomeEl.classList.toggle('partner-modificato', nomeCambio);
+            contoEl.classList.toggle('partner-modificato', contoCambio);
+            if (nomeCambio || contoCambio) sporco = true;
+        });
+        return sporco;
+    }
+
+    function aggiornaStatoModifichePartner() {
+        let sporco = partnerAdminSporco();
+        document.querySelectorAll('.btn-salva-partner').forEach(function(b) {
+            b.classList.toggle('modifiche-non-salvate', sporco);
+        });
+        document.querySelectorAll('.badge-partner-dirty').forEach(function(b) {
+            b.classList.toggle('visibile', sporco);
+        });
+    }
+
+    function aggiornaMascherePartner(prima, dopo, rinomine) {
+        let preselezionati = {};
+        ['n_partner_dogana', 'v_partner_dogana', 'c_partner_dogana'].forEach(function(id) {
+            let el = document.getElementById(id);
+            preselezionati[id] = el ? el.value : "";
+        });
+        inizializzaDropdownPartners();
+        ['n_partner_dogana', 'v_partner_dogana', 'c_partner_dogana'].forEach(function(id) {
+            let el = document.getElementById(id);
+            if (!el) return;
+            let v = preselezionati[id];
+            if (rinomine && rinomine[v]) v = rinomine[v];
+            if (v && Array.from(el.options).some(function(o) { return o.value === v; })) el.value = v;
+        });
+        ['n_', 'v_'].forEach(function(prefisso) {
+            let sel = document.getElementById(prefisso + 'partner_dogana');
+            let campo = document.getElementById(prefisso + 'nr_conto');
+            if (!sel || !campo || !sel.value) return;
+            if (!Object.prototype.hasOwnProperty.call(dopo, sel.value)) return;
+            let nomeAttuale = sel.value;
+            let nomePrima = nomeAttuale;
+            if (rinomine) {
+                Object.keys(rinomine).forEach(function(vecchio) {
+                    if (rinomine[vecchio] === nomeAttuale) nomePrima = vecchio;
+                });
+            }
+            let contoPrima = Object.prototype.hasOwnProperty.call(prima, nomePrima) ? prima[nomePrima] : undefined;
+            let contoDopo = dopo[nomeAttuale];
+            if (contoPrima !== contoDopo) campo.value = contoDopo == null ? "" : String(contoDopo);
+        });
+        let area = document.getElementById('area-risultati');
+        if (area && area.style.display !== 'none' && document.getElementById('tbody-risultati')) {
+            renderTabellaRisultati();
+        }
+    }
+
+    async function salvaModifichePartner() {
+        let msg = document.getElementById('msg-admin-partner');
+        let btns = Array.from(document.querySelectorAll('.btn-salva-partner'));
+        try {
+            if (fileHandleDB && typeof fileHandleDB.requestPermission === 'function') {
+                let permesso = await fileHandleDB.requestPermission({ mode: 'readwrite' });
+                if (permesso === 'denied') {
+                    if (msg) { msg.style.color = 'red'; msg.innerText = 'Permesso di scrittura negato sul database JSON.'; }
+                    return false;
+                }
+            }
+            let nuoviPartner = leggiPartnerDaAdmin();
+            if (Object.keys(nuoviPartner).length === 0) {
+                alert('Inserisci almeno un partner.');
+                return false;
+            }
+            let rinomine = rinominePartnerDaTabella();
+            let prima = ordinaMappaPartner(JSON.parse(JSON.stringify(contiPartner)));
+            contiPartner = nuoviPartner;
+            localStorage.setItem(LS_CONTI_PARTNER, JSON.stringify(contiPartner));
+            btns.forEach(function(b) { b.disabled = true; });
+            if (!fileHandleDB) {
+                aggiornaMascherePartner(prima, contiPartner, rinomine);
+                renderAdminPartner();
+                if (msg) { msg.style.color = 'red'; msg.innerText = 'Nessun database JSON collegato.'; }
+                return true;
+            }
+            let wr = await conUiSalvataggio(function() {
+                return scriviDatabaseSuFile(databaseCache || creaDatabaseVuoto(), { includiConfig: true });
+            });
+            let excelOk = !!(wr && wr.ok);
+            aggiornaMascherePartner(prima, contiPartner, rinomine);
+            renderAdminPartner();
+            if (msg) {
+                msg.style.color = excelOk ? 'green' : 'red';
+                msg.innerText = excelOk
+                    ? '✅ Elenco Partner e Numeri di Conto salvato nel database!'
+                    : 'Elenco aggiornato in memoria. Scrittura JSON non riuscita.';
+            }
+            return true;
+        } catch (e) {
+            if (msg) { msg.style.color = 'red'; msg.innerText = (e && e.message) ? e.message : String(e); }
+            return false;
+        } finally {
+            btns.forEach(function(b) { b.disabled = false; });
+            if (salvataggioInCorso > 0) {
+                salvataggioInCorso = 0;
+                aggiornaBadgeDB();
+                sbloccaBottoniSalva();
+            }
+        }
+    }
+
+    (function collegaInputPartnerAdmin() {
+        let tbody = document.getElementById('tbody-admin-partner');
+        if (!tbody || tbody.dataset.collegata) return;
+        tbody.dataset.collegata = '1';
+        tbody.addEventListener('input', function(ev) {
+            if (!ev.target || !ev.target.matches || !ev.target.matches('input')) return;
+            aggiornaStatoModifichePartner();
+        });
+    })();
 
     function parseStatusTextarea(id) {
         return document.getElementById(id).value
@@ -4435,11 +4673,23 @@
     }
 
     async function salvaAdmin() {
+        try {
+            if (fileHandleDB && typeof fileHandleDB.requestPermission === "function") {
+                let permesso = await fileHandleDB.requestPermission({ mode: "readwrite" });
+                if (permesso === "denied") {
+                    let msgNegato = document.getElementById("msg-admin");
+                    if (msgNegato) { msgNegato.style.color = "red"; msgNegato.innerText = "Permesso di scrittura negato sul database JSON."; }
+                    return;
+                }
+            }
+        } catch (ePerm) { /* il consenso si richiede di nuovo in scrittura */ }
         let nuoviPartner = leggiPartnerDaAdmin();
         if (Object.keys(nuoviPartner).length === 0) {
             alert("Inserisci almeno un partner.");
             return;
         }
+        let rinomine = rinominePartnerDaTabella();
+        let prima = ordinaMappaPartner(JSON.parse(JSON.stringify(contiPartner)));
         contiPartner = nuoviPartner;
         statusExtra117 = parseStatusTextarea('admin-status-117');
         statusExtra118 = parseStatusTextarea('admin-status-118');
@@ -4456,8 +4706,9 @@
         let excelOk = !fileHandleDB;
         try {
             if (fileHandleDB) {
-                let db = await rileggiDatabaseDaFile();
-                let wr = await conUiSalvataggio(function() { return scriviDatabaseSuFile(db, { includiConfig: true }); });
+                let wr = await conUiSalvataggio(function() {
+                    return scriviDatabaseSuFile(databaseCache || creaDatabaseVuoto(), { includiConfig: true });
+                });
                 excelOk = !!(wr && wr.ok);
             }
         } catch (e) {
@@ -4470,8 +4721,14 @@
             }
         }
 
-        inizializzaDropdownPartners();
-        selezionaFoglio(foglioCorrente);
+        ['n_status', 'v_status'].forEach(function(id) {
+            let el = document.getElementById(id);
+            if (!el) return;
+            let v = el.value;
+            el.innerHTML = buildStatusSelectHTML(true);
+            if (v && Array.from(el.options).some(function(o) { return o.value === v; })) el.value = v;
+        });
+        aggiornaMascherePartner(prima, contiPartner, rinomine);
         apriAdmin();
         let msg = document.getElementById('msg-admin');
         msg.style.color = excelOk ? "green" : "red";
