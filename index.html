@@ -568,7 +568,6 @@
         <div class="titolo-form-corrente" id="display-titolo-foglio">Formulario: 11.73 Import</div>
         <div class="action-buttons">
             <span id="badge-db" class="badge-db badge-db-off" title="Stato connessione database JSON">🟠 Modalità Emergenza</span>
-            <button class="action-btn" id="btn-esporta-excel" onclick="esportaExcel()">📤 Esporta Excel</button>
             <button class="action-btn" id="btn-report" onclick="generaReportPDF()">📊 Report Aperte (PDF)</button>
             <button class="action-btn" id="btn-esporta-tutto" onclick="esportaTuttoExcel()">📗 Esporta Tutto in Excel (.xlsx)</button>
             <button class="action-btn attivo" id="btn-azione-nuovo" onclick="cambiaAzione('nuovo')">➕ Nuovo</button>
@@ -740,7 +739,7 @@
                 <button type="button" class="btn-main" style="background-color:#1e293b; box-shadow:none;" onclick="ricollegaFileDatabase()">🔗 Cambia / Ricollega JSON</button>
                 <button type="button" class="btn-main" style="background-color:#0f766e; box-shadow:none;" onclick="inizializzaNuovoExcel()">📄 Inizializza JSON vuoto</button>
                 <button type="button" class="btn-main" style="background-color:#1d4ed8; box-shadow:none;" onclick="importaExcelNelDatabase()">📥 Importa da Excel</button>
-                <button type="button" class="btn-main" style="background-color:#b45309; box-shadow:none;" onclick="esportaExcel()">📤 Esporta Excel</button>
+                <button type="button" class="btn-main" id="btn-esporta-excel" style="background-color:#b45309; box-shadow:none;" onclick="esportaExcel()">📤 Esporta Excel</button>
                 <button type="button" class="btn-main" id="btn-esporta-tutto-admin" style="background-color:#059669; box-shadow:none;" onclick="esportaTuttoExcel()">📗 Esporta Tutto in Excel (.xlsx)</button>
             </div>
             <div id="msg-admin-path" class="messaggio-esito" style="margin-top:10px;"></div>
