@@ -429,6 +429,31 @@
             margin: 0 0 12px;
             line-height: 1.45;
         }
+        .login-utente-rilevato {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            background: #eff6ff;
+            border: 1px solid #93c5fd;
+            color: #1e3a8a;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-weight: 700;
+            margin: 0 0 12px;
+            line-height: 1.35;
+        }
+        .btn-login-cambia-utente {
+            background: none;
+            border: none;
+            color: #1d4ed8;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+            padding: 4px 2px;
+        }
+        .btn-login-cambia-utente:hover { text-decoration: underline; }
         .btn-login-collega {
             background: #059669;
             color: #fff;
@@ -825,9 +850,13 @@
         </div>
 
         <div id="login-schermata-utenti" style="display:none;">
-            <div class="grid-item" style="margin-bottom:14px;">
+            <div id="login-utente-rilevato" class="login-utente-rilevato" style="display:none;">
+                <span id="login-utente-rilevato-testo"></span>
+                <button type="button" class="btn-login-cambia-utente" onclick="modificaUtenteRilevato()">✏️ Cambia</button>
+            </div>
+            <div class="grid-item" id="login-utente-manuale" style="margin-bottom:14px;">
                 <label for="login-operatore">Utente / N° Pers.</label>
-                <input type="text" id="login-operatore" placeholder="Es. 80732494 o nome" autocomplete="username">
+                <input type="text" id="login-operatore" placeholder="Es. 80732494 o nome" autocomplete="username" oninput="onInputUtenteLogin()">
             </div>
 
             <div id="login-caso-primo" style="display:none;">
@@ -1398,11 +1427,7 @@
         if (attesa) attesa.style.display = "none";
         if (admin) admin.style.display = "none";
         if (schermata) schermata.style.display = "block";
-        let operatore = document.getElementById("login-operatore");
-        if (operatore && !operatore.value) {
-            let salvato = localStorage.getItem("utenteDoganaMulti");
-            if (salvato) operatore.value = salvato;
-        }
+        preparaUtenteWindows();
         let collegato = !!handleMemorizzato;
         if (caso1) caso1.style.display = collegato ? "block" : "none";
         if (caso2) caso2.style.display = collegato ? "none" : "block";
@@ -1439,6 +1464,88 @@
         if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
             try { navigator.clipboard.writeText(testo).catch(function() {}); } catch (e) { /* copia sincrona già tentata */ }
         }
+    }
+
+    function pulisciIdentificativoWindows(nome) {
+        let s = String(nome == null ? "" : nome).trim();
+        if (!s) return "";
+        try { s = decodeURIComponent(s).trim(); } catch (e) { /* già decodificato */ }
+        let federale = s.match(/^U(\d{6,10})$/i);
+        if (federale) return federale[1];
+        return s;
+    }
+
+    function cartellaUtenteGenerica(nome) {
+        let n = String(nome || "").trim().toLowerCase();
+        return n === "public" || n === "default" || n === "all users";
+    }
+
+    function rilevaUtenteWindowsAutomatico() {
+        let percorso = "";
+        try { percorso = decodeURIComponent(window.location.pathname || ""); }
+        catch (e) { percorso = String(window.location.pathname || ""); }
+        let match = percorso.match(/\/Users\/([^\/]+)\//i);
+        if (match && match[1] && !cartellaUtenteGenerica(match[1])) {
+            let dalPercorso = pulisciIdentificativoWindows(match[1]);
+            if (dalPercorso) return dalPercorso;
+        }
+        let daUrl = "";
+        try {
+            daUrl = new URLSearchParams(window.location.search || "").get("user") || "";
+        } catch (e2) {
+            let trovato = String(window.location.search || "").match(/[?&]user=([^&]*)/i);
+            daUrl = trovato ? trovato[1] : "";
+        }
+        if (daUrl) {
+            let dalParametro = pulisciIdentificativoWindows(daUrl);
+            if (dalParametro) return dalParametro;
+        }
+        return "";
+    }
+
+    let utenteLoginInModifica = false;
+
+    function preparaUtenteWindows() {
+        let rilevato = rilevaUtenteWindowsAutomatico();
+        let salvato = "";
+        try { salvato = localStorage.getItem("utenteDoganaMulti") || ""; } catch (e) { salvato = ""; }
+        let nome = salvato;
+        let automatico = false;
+        if (rilevato && (!salvato || salvato === rilevato)) {
+            nome = rilevato;
+            automatico = true;
+            applicaNomeOperatore(rilevato);
+        }
+        let input = document.getElementById("login-operatore");
+        let campo = document.getElementById("n_utente");
+        if (campo && nome && !utenteLoginInModifica) campo.value = nome;
+        if (input && nome && !utenteLoginInModifica && (automatico || !input.value)) input.value = nome;
+        if (input && nome && utenteLoginInModifica && !input.value) input.value = nome;
+        let box = document.getElementById("login-utente-rilevato");
+        let manuale = document.getElementById("login-utente-manuale");
+        let testo = document.getElementById("login-utente-rilevato-testo");
+        let banner = !!(automatico && nome && !utenteLoginInModifica);
+        if (box) box.style.display = banner ? "flex" : "none";
+        if (manuale) manuale.style.display = banner ? "none" : "";
+        if (testo) testo.textContent = banner ? ("👤 Utente rilevato automaticamente: " + nome) : "";
+    }
+
+    function modificaUtenteRilevato() {
+        utenteLoginInModifica = true;
+        let box = document.getElementById("login-utente-rilevato");
+        let manuale = document.getElementById("login-utente-manuale");
+        if (box) box.style.display = "none";
+        if (manuale) manuale.style.display = "";
+        let input = document.getElementById("login-operatore");
+        if (input) {
+            input.focus();
+            if (typeof input.select === "function") input.select();
+        }
+    }
+
+    function onInputUtenteLogin() {
+        let nome = nomeOperatoreLogin();
+        if (nome) applicaNomeOperatore(nome);
     }
 
     function nomeOperatoreLogin() {
@@ -3430,12 +3537,7 @@
     }
 
     function controllaUtenteObbligatorio() {
-        // Login via modale (niente prompt). Prefill operatore.
-        let nomeUtente = localStorage.getItem("utenteDoganaMulti") || "";
-        let loginInput = document.getElementById("login-operatore");
-        if (loginInput) loginInput.value = nomeUtente;
-        let campoUtente = document.getElementById("n_utente");
-        if (campoUtente && nomeUtente) campoUtente.value = nomeUtente;
+        preparaUtenteWindows();
     }
 
     function cambiaUtente() {
