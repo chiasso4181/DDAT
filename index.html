@@ -624,7 +624,7 @@
             <span id="badge-db" class="badge-db badge-db-off" title="Stato connessione database JSON">🟠 Modalità Emergenza</span>
             <button class="action-btn" id="btn-report" onclick="generaReportPDF()">📊 Report Aperte (PDF)</button>
             <button class="action-btn" id="btn-esporta-tutto" onclick="esportaTuttoExcel()">📗 Esporta Tutto in Excel (.xlsx)</button>
-            <button class="action-btn attivo" id="btn-azione-nuovo" onclick="cambiaAzione('nuovo')">➕ Nuovo</button>
+            <button class="action-btn attivo" id="btn-azione-nuovo" onclick="nuovoFormulario()">➕ Nuovo</button>
             <button class="action-btn" id="btn-azione-cerca" onclick="cambiaAzione('cerca')">🔍 Cerca / Modifica</button>
             <button class="action-btn" id="btn-azione-admin" onclick="apriAdmin()">⚙️ Admin</button>
         </div>
@@ -3686,6 +3686,11 @@
         svuotaTutto();
     }
 
+    function nuovoFormulario() {
+        cambiaAzione('nuovo');
+        svuotaTutto();
+    }
+
     function cambiaAzione(azione) {
         document.querySelectorAll('.pagina').forEach(p => p.classList.remove('attiva'));
         document.querySelectorAll('.action-btn').forEach(b => b.classList.remove('attivo'));
@@ -3933,9 +3938,8 @@
             if (risultato.successo) {
                 msg.style.color = "green"; msg.innerText = risultato.messaggio;
                 if(tipo === 'nuovo') { 
-                    document.getElementById("display-numero-nuovo").innerText = risultato.numeroAssegnato; 
+                    document.getElementById("display-numero-nuovo").innerText = risultato.numeroAssegnato;
                     btn.disabled = true; btn.innerText = "Record Salvato"; 
-                    setTimeout(() => { svuotaTutto(); msg.innerText = "Pronto per il prossimo!"; }, 3000); 
                 } else {
                     btn.innerText = testoOriginaleBottone;
                     btn.disabled = salvataggioInCorso > 0;
